@@ -134,16 +134,16 @@ extension EventViewerContent {
         }.map { item -> Performance in
             let place = graph.places.first { $0.id == item.eventPlace }
             let day = days.first { $0.id == item.schedule }
-            let midnight = day?.date.atStartOfDay(in: event.timeZone)
+            let midnight = event.timeZone.flatMap { zone in day?.date.atStartOfDay(in: zone) }
             var value = Performance(id: item.id.description, title: item.title, stage: place?.name ?? "Unassigned",
-                time: itemDates[item.id]?.start.map(formatter.string) ?? "Time not announced",
-                endTime: itemDates[item.id]?.end.map(formatter.string),
+                time: event.timeZone.flatMap { _ in itemDates[item.id]?.start.map(formatter.string) } ?? "",
+                endTime: event.timeZone.flatMap { _ in itemDates[item.id]?.end.map(formatter.string) },
                 startMinute: midnight.flatMap { zero in itemDates[item.id]?.start.map { Int($0.timeIntervalSince(zero) / 60) } },
                 endMinute: midnight.flatMap { zero in itemDates[item.id]?.end.map { Int($0.timeIntervalSince(zero) / 60) } },
                 stageColor: place.flatMap(webStageColor), stageLogoURL: place.flatMap { mediaImages($0.media).first }.flatMap { webImage($0, owner: event.id) })
             value.detailURL = webQuery(["feature": "schedule", "performance": item.id.description, "program": item.program.description, "day": item.schedule?.description]) + "#viewer"
             value.description = item.description
-            value.dateLine = itemDates[item.id]?.start.map(dateFormatter.string) ?? midnight.map(dateFormatter.string)
+            value.dateLine = event.timeZone.flatMap { _ in itemDates[item.id]?.start.map(dateFormatter.string) } ?? day?.date.rawValue
             value.credits = (item.credits ?? []).map { credit in
                 ViewerText(text: credit.name + (credit.role.map { " · " + $0 } ?? ""),
                     url: credit.contributor.map { webQuery(["feature": "contributors", "contributor": $0.description]) + "#viewer" })
@@ -162,8 +162,8 @@ extension EventViewerContent {
         }
         var model = EventModel(name: event.name, location: event.locations?.first?.name ?? "Location not announced",
             heroImageURL: mediaImages(event.media).first.flatMap { webImage($0, owner: event.id) },
-            dateLine: event.start?.date(in: event.timeZone).map(dateFormatter.string),
-            scheduleLabel: program?.title ?? "Schedule", timeZoneIdentifier: event.timeZone.identifier,
+            dateLine: event.timeZone.flatMap { _ in event.start?.date(in: event.timeZone).map(dateFormatter.string) } ?? event.start?.calendarDay?.rawValue,
+            scheduleLabel: program?.title ?? "Schedule", timeZoneIdentifier: event.timeZone?.identifier,
             summary: event.description, performances: performances)
         model.selectedPerformance = performances.first { $0.id == selection.values["performance"] }
         model.scheduleQuery = String(webQuery(["feature": "schedule", "program": programID, "day": dayID, "stage": selection.values["stage"]]).dropFirst())
@@ -189,7 +189,7 @@ extension EventViewerContent {
                 icon: EventViewerIcon(programSemanticName: $0.icon?.rawValue)
             )
         }
-        model.dayChoices = days.map { .init(title: $0.title ?? dateFormatter.string(from: $0.date.atStartOfDay(in: event.timeZone)), url: webQuery(["program": programID, "day": $0.id.description, "schedule-kind": selection.kind.webValue]), selected: $0.id.description == dayID) }
+        model.dayChoices = days.map { day in .init(title: day.title ?? event.timeZone.map { dateFormatter.string(from: day.date.atStartOfDay(in: $0)) } ?? day.date.rawValue, url: webQuery(["program": programID, "day": day.id.description, "schedule-kind": selection.kind.webValue]), selected: day.id.description == dayID) }
         model.contributors = graph.contributors.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }.map { contributor in
             var value = OpenMusicEventWeb.Contributor(id: contributor.id.description, name: contributor.name,
                 role: (contributor.roles ?? []).compactMap { if case .known(let role) = $0 { return role.rawValue }; return nil }.joined(separator: ", "),
@@ -209,7 +209,7 @@ extension EventViewerContent {
                 default: break
                 }
             }
-            return EventLocation(id: String(index), name: location.name, address: address, detail: location.description, latitude: latitude, longitude: longitude)
+            return EventLocation(id: String(index), name: location.name ?? "", address: address, detail: location.description, latitude: latitude, longitude: longitude)
         }
         let styleID = selection.values["map"] ?? event.siteMap?.defaultStyleID ?? maps.first?.id
         model.siteMapURL = maps.first { $0.id == styleID }.flatMap { webImage($0.image, owner: event.id) }

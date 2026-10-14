@@ -28,14 +28,12 @@ struct CanonicalDomainBoundaryTests {
 
         // Domain storage is not evidence of publication. Its local representation
         // can differ, and an external row must not acquire an OME publication identity.
-        let imported = try Event(id: Event.ID("at://did:plc:calendar/events.openmusic.event/3mrdbziccpcab")!, name: "Imported calendar event",
-                                 createdAt: "2026-08-01T12:00:00Z", timeZone: .gmt)
+        let imported = try Event(projecting: importedID, cid: "bafy-imported-original",
+                                 projectionVersion: 1, name: "Imported calendar event",
+                                 createdAt: "2026-08-01T12:00:00Z")
         try await database.write { db in
             try Event.find(id).update { $0.name = "Local domain representation" }.execute(db)
             try Event.insert { imported }.execute(db)
-            // Simulate a persisted external domain row independently of publication
-            // constructors, which must continue rejecting this source collection.
-            try #sql("UPDATE \(Event.self) SET id = \(bind: importedID) WHERE \(Event.columns.id) = \(bind: imported.id)").execute(db)
         }
 
         let expected = try JSONDecoder().decode(Lexicon.JSONValue.self, from: payload)

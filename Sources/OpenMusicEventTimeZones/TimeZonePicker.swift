@@ -1,4 +1,11 @@
 import Foundation
+
+private extension TimeZone {
+    var optionalSelection: TimeZone? {
+        get { self }
+        set { if let newValue { self = newValue } }
+    }
+}
 #if os(Android) || canImport(SwiftUI)
 #if os(Android) || SKIP_BRIDGE
 import SkipSwiftUI
@@ -10,10 +17,14 @@ import SwiftUI
 
 public struct TimeZonePicker: View {
     @Environment(\.dismiss) var dismiss
-    @Binding private var selection: TimeZone
+    @Binding private var selection: TimeZone?
     @State var query = ""
 
     public init(selection: Binding<TimeZone>) {
+        self._selection = selection.optionalSelection
+    }
+
+    public init(selection: Binding<TimeZone?>) {
         self._selection = selection
     }
 
@@ -22,7 +33,7 @@ public struct TimeZonePicker: View {
             TimeZonePickerButtonRow(
                 timeZone: timeZone,
                 isCurrent: timeZone.identifier == currentTimeZone.identifier,
-                isSelected: timeZone.identifier == selection.identifier
+                isSelected: timeZone.identifier == selection?.identifier
             ) {
                 selection = timeZone
                 dismiss()
@@ -59,7 +70,7 @@ public struct TimeZonePicker: View {
     }
 
     private var selectedTimeZone: TimeZone? {
-        TimeZone(identifier: selection.identifier)
+        selection
     }
 
     private var pinnedCurrentTimeZone: TimeZone? {

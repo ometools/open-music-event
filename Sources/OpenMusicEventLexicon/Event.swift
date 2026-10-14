@@ -29,7 +29,7 @@ public struct Event: RecordCodable, Equatable {
     public var createdAt: ATProto.DateTime
 
     @LexiconField(encoding: TimeZoneIdentifier.self, description: "The IANA time-zone identifier used for calendar days and event-local schedule display.", minLength: 1, maxLength: 64)
-    public var timeZone: TimeZone
+    public var timeZone: TimeZone? = nil
 
     @LexiconField(description: "A public description of the event.", maxLength: 30_000, maxGraphemes: 3_000)
     public var description: String? = nil
@@ -48,7 +48,7 @@ public struct Event: RecordCodable, Equatable {
     @LexiconField(description: "How attendees can participate in the event.")
     public var mode: Open<Mode>? = nil
 
-    @LexiconField(description: "Named event locations. Array order is the organizer's preferred display order.")
+    @LexiconField(description: "Event locations. Array order is the organizer's preferred display order.")
     @Column(as: [Location].JSONRepresentation?.self)
     public var locations: [Location]? = nil
 
@@ -203,10 +203,15 @@ public extension Event {
 }
 
 public extension Open where Known == Event.Time {
-    func date(in timeZone: TimeZone) -> Date? {
+    var calendarDay: LocalDate? {
+        guard case let .known(.day(day)) = self else { return nil }
+        return day.value
+    }
+
+    func date(in timeZone: TimeZone?) -> Date? {
         switch self {
         case let .known(.day(day)):
-            day.value.atStartOfDay(in: timeZone)
+            timeZone.map { day.value.atStartOfDay(in: $0) }
         case let .known(.time(instant)):
             (try? Date(instant.value.rawValue, strategy: .iso8601.time(includingFractionalSeconds: true)))
                 ?? (try? Date(instant.value.rawValue, strategy: .iso8601))

@@ -150,7 +150,7 @@ struct ProgramScheduleTests {
         #expect(item.endDate != nil)
         let sundayDate = try #require(LocalDate("2026-09-06"))
         let saturdayDate = try #require(LocalDate("2026-09-05"))
-        expectNoDifference(LocalDate(start, in: event.timeZone), sundayDate)
+        expectNoDifference(LocalDate(start, in: try #require(event.timeZone)), sundayDate)
         expectNoDifference(saturday.date, saturdayDate)
     }
 

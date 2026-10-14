@@ -52,12 +52,12 @@ extension EventDetailContext: DependencyKey {
 }
 
 private enum DefaultEventTimeZoneKey: DependencyKey {
-    static var liveValue: SharedReader<TimeZone> {
-        SharedReader(value: .current)
+    static var liveValue: SharedReader<TimeZone?> {
+        SharedReader(value: nil)
     }
 
-    static var testValue: SharedReader<TimeZone> {
-        SharedReader(value: TimeZone(secondsFromGMT: 0)!)
+    static var testValue: SharedReader<TimeZone?> {
+        SharedReader(value: nil)
     }
 }
 
@@ -67,7 +67,7 @@ extension DependencyValues {
         set { self[EventDetailContext.self] = EventDetailContext(eventID: newValue) }
     }
 
-    var defaultEventTimeZone: SharedReader<TimeZone> {
+    var defaultEventTimeZone: SharedReader<TimeZone?> {
         get { self[DefaultEventTimeZoneKey.self] }
         set { self[DefaultEventTimeZoneKey.self] = newValue }
     }
@@ -384,12 +384,12 @@ public struct EventDetail {
 
         public var id: Event.ID { eventID }
 
-        public var eventTimeZone: TimeZone {
-            event?.timeZone ?? .current
+        public var eventTimeZone: TimeZone? {
+            event?.timeZone
         }
 
-        var eventTimeZoneReader: SharedReader<TimeZone> {
-            $event.sharedReader.read { $0?.timeZone ?? .current }
+        var eventTimeZoneReader: SharedReader<TimeZone?> {
+            $event.sharedReader.read { $0?.timeZone }
         }
 
         public var validatedWorkspaceSession: EventWorkspaceSession? {
@@ -556,7 +556,7 @@ public struct EventDetail {
             case let .addSchedule(eventID):
                 guard eventID == self.eventID else { return }
                 self.destination = withEventDependencies {
-                    .scheduleForm(editScheduleState())
+                    editScheduleState().map(Destination.State.scheduleForm)
                 }
 
             case let .addPosters(eventID):
@@ -645,6 +645,7 @@ public struct EventDetail {
             programID: Program.ID?,
             stageID: EventPlace.ID?
         ) -> ProgramItemForm.State? {
+            guard let eventTimeZone else { return nil }
             @Dependency(\.defaultDatabase) var database
 
             do {
@@ -742,9 +743,10 @@ public struct EventDetail {
             in db: Database
         ) throws -> Schedule? {
             guard let event,
+                  let timeZone = event.timeZone,
                   let start = event.start?.date(in: event.timeZone)
             else { return nil }
-            let scheduleDate = LocalDate(start, in: event.timeZone)
+            let scheduleDate = LocalDate(start, in: timeZone)
             @Dependency(\.date.now) var now
             let scheduleID = try ScheduleRecordEditing.create(
                 eventID: eventID,
@@ -761,6 +763,7 @@ public struct EventDetail {
         private func editPerformanceState(
             performanceID: ProgramItem.ID
         ) -> ProgramItemForm.State? {
+            guard let eventTimeZone else { return nil }
             @Dependency(\.defaultDatabase) var database
 
             do {
@@ -798,7 +801,8 @@ public struct EventDetail {
             }
         }
 
-        private func editScheduleState() -> ScheduleForm.State {
+        private func editScheduleState() -> ScheduleForm.State? {
+            guard let eventTimeZone else { return nil }
             @Dependency(\.defaultDatabase) var database
 
             let initialDate: LocalDate?
@@ -1230,7 +1234,7 @@ public struct EventDetailView: View {
             .environment(\.needsStageDisambiguation, store.needsStageDisambiguation)
             .environment(
                 \.eventTimePresentation,
-                store.event.map { EventTimePresentation(timeZone: $0.timeZone) }
+                store.event?.timeZone.map { EventTimePresentation(timeZone: $0) }
             )
             .environment(\.performanceReactionMenuContext, reactionMenuContext)
             .sheet(item: $store.scope(\.destination)) { _ in

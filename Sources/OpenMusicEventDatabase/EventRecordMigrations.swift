@@ -1,4 +1,5 @@
 import SQLiteData
+import OpenMusicEventLexicon
 
 public enum EventRecordMigrations {
     public static func register(into migrator: inout DatabaseMigrator) {
@@ -140,6 +141,29 @@ public enum EventRecordMigrations {
         migrator.registerMigration("Add Event local projection provenance") { db in
             try #sql(#"ALTER TABLE "events.openmusic.event" ADD COLUMN "projectionVersion" INTEGER"#)
                 .execute(db)
+        }
+        migrator.registerMigration("Allow unknown canonical Event time zone") { db in
+            try #sql("""
+                CREATE TABLE "canonicalEventOptionalTimeZone" (
+                  id TEXT PRIMARY KEY NOT NULL, cid TEXT, name TEXT NOT NULL,
+                  createdAt TEXT NOT NULL, timeZone TEXT, description TEXT,
+                  start TEXT, end TEXT, status TEXT, mode TEXT, locations TEXT,
+                  links TEXT, media TEXT, programs TEXT, schedules TEXT,
+                  rsvpExpected INTEGER, categories TEXT, siteMap TEXT,
+                  projectionVersion INTEGER
+                ) STRICT
+                """).execute(db)
+            try #sql("""
+                INSERT INTO "canonicalEventOptionalTimeZone"
+                  (id, cid, name, createdAt, timeZone, description, start, end,
+                   status, mode, locations, links, media, programs, schedules,
+                   rsvpExpected, categories, siteMap, projectionVersion)
+                SELECT id, cid, name, createdAt, timeZone, description, start, end,
+                   status, mode, locations, links, media, programs, schedules,
+                   rsvpExpected, categories, siteMap, projectionVersion FROM \(Event.self)
+                """).execute(db)
+            try #sql("DROP TABLE \(Event.self)").execute(db)
+            try #sql("ALTER TABLE canonicalEventOptionalTimeZone RENAME TO \(quote: Event.tableName)").execute(db)
         }
     }
 }

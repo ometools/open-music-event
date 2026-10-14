@@ -9,6 +9,25 @@ import Testing
 
 struct EventRecordGraphTests {
     @Test
+    func `unknown zone and unnamed location survive canonical storage`() throws {
+        let database = try DatabaseQueue()
+        var migrator = DatabaseMigrator()
+        EventRecordMigrations.register(into: &migrator)
+        try migrator.migrate(database)
+        var event = try Event(projecting: #require(ATProto.URI("at://did:plc:calendar/community.lexicon.calendar.event/3mrdbziccpcah")),
+                              cid: "bafy-original", projectionVersion: 1,
+                              name: "Unannounced", createdAt: "2026-08-01T12:00:00Z")
+        event.locations = [.init(locators: [.known(.address(.init(country: "CA")))])]
+        event.start = .known(.day(.init(value: #require(LocalDate("2026-09-04")))))
+        let expected = event
+        try database.write { try Event.insert { expected }.execute($0) }
+        let stored = try #require(try database.read { try Event.find(expected.id).fetchOne($0) })
+        expectNoDifference(stored, expected)
+        #expect(stored.start?.date(in: stored.timeZone) == nil)
+        expectNoDifference(stored.start?.calendarDay?.rawValue, "2026-09-04")
+    }
+
+    @Test
     func `projection provenance is local and upgrades preserve native content`() throws {
         let database = try DatabaseQueue()
         var migrator = DatabaseMigrator()

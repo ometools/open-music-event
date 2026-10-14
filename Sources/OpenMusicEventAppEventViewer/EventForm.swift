@@ -106,10 +106,14 @@ public struct EventForm {
             if record.name.isEmpty { return "Enter an event name." }
             if record.status?.customValue == "" { return "Enter a custom event status." }
             if record.mode?.customValue == "" { return "Enter a custom event mode." }
-            if let start = record.start?.date(in: record.timeZone),
+            if let start = record.start?.calendarDay, let end = record.end?.calendarDay, end < start {
+                return "End must be on or after the start."
+            }
+            if let timeZone = record.timeZone,
+               let start = record.start?.date(in: timeZone),
                let end = record.end?.date(in: record.timeZone),
                (record.start.precision == .day || record.end.precision == .day
-                ? LocalDate(end, in: record.timeZone) < LocalDate(start, in: record.timeZone)
+                ? LocalDate(end, in: timeZone) < LocalDate(start, in: timeZone)
                 : end < start) {
                 return "End must be on or after the start."
             }
@@ -341,18 +345,25 @@ public struct EventFormView: View {
                     .portableLineLimit(4...8)
             }
             Section("Times") {
+                if let timeZone = store.draft.timeZone {
                 EventBoundaryPicker(
                     title: "Start", value: $store.draft.start,
-                    timeZone: store.draft.timeZone, defaultDate: store.defaultDate
+                    timeZone: timeZone, defaultDate: store.defaultDate
                 )
                 EventBoundaryPicker(
                     title: "End", value: $store.draft.end,
-                    timeZone: store.draft.timeZone, defaultDate: store.defaultDate
+                    timeZone: timeZone, defaultDate: store.defaultDate
                 )
+                } else {
+                    if let day = store.draft.start?.calendarDay { LabeledContent("Start", value: day.rawValue) }
+                    if let day = store.draft.end?.calendarDay { LabeledContent("End", value: day.rawValue) }
+                    Text("Choose the event’s time zone to edit its local times.")
+                        .foregroundStyle(.secondary)
+                }
                 NavigationLink {
                     TimeZonePicker(selection: $store.draft.timeZone)
                 } label: {
-                    LabeledContent("Time Zone", value: store.draft.timeZone.identifier)
+                    LabeledContent("Time Zone", value: store.draft.timeZone?.identifier ?? "Choose")
                 }
                 .navigationLinkListRowStyle()
             }

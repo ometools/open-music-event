@@ -59,10 +59,10 @@ extension OpenMusicEventAppViewServer {
             formatter.locale = Locale(identifier: "en_US_POSIX")
             formatter.timeZone = event.timeZone
             formatter.dateFormat = "yyyy-MM-dd"
-            let localDay = start.map(formatter.string)
+            let localDay = event.start?.calendarDay?.rawValue ?? event.timeZone.flatMap { _ in start.map(formatter.string) }
             let interval = DateIntervalFormatter()
             interval.timeZone = event.timeZone; interval.dateStyle = .medium; interval.timeStyle = .none
-            let date = start.map { interval.string(from: $0, to: end ?? $0) }
+            let date = event.timeZone.flatMap { _ in start.map { interval.string(from: $0, to: end ?? $0) } } ?? localDay
             let mode: String
             switch event.mode {
             case .known(.inPerson): mode = "inperson"

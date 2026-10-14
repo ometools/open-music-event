@@ -156,7 +156,7 @@ private extension OME.CalendarEvent {
                 }
             ),
             source: Source(collection: ATProto.NSID(CanonicalEvent.lexiconID.rawValue)),
-            timeZoneIdentifier: event.timeZone.identifier
+            timeZoneIdentifier: event.timeZone?.identifier
         )
     }
 

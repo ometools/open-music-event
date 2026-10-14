@@ -119,18 +119,23 @@ struct EventRowView: View {
     }
 
     private var eventDateText: String? {
+        guard let timeZone = event.timeZone else {
+            let days = [event.start?.calendarDay?.rawValue, event.end?.calendarDay?.rawValue]
+                .compactMap { $0 }
+            return days.isEmpty ? nil : days.joined(separator: " – ")
+        }
         let start = event.start?.date(in: event.timeZone)
         let end = event.end?.date(in: event.timeZone)
         switch (start, end) {
         case let (.some(start), .some(end)):
             let formatter = DateIntervalFormatter()
-            formatter.timeZone = event.timeZone
+            formatter.timeZone = timeZone
             formatter.dateStyle = .long
             formatter.timeStyle = .none
             return formatter.string(from: start, to: end)
         case let (.some(date), .none), let (.none, .some(date)):
             let formatter = DateFormatter()
-            formatter.timeZone = event.timeZone
+            formatter.timeZone = timeZone
             formatter.dateStyle = .long
             formatter.timeStyle = .none
             return formatter.string(from: date)

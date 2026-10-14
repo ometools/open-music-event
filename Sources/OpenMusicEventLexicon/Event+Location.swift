@@ -3,10 +3,10 @@ import ATProtoTypes
 import ATProtoSQLite
 
 extension Event {
-    @Lexicon("events.openmusic.defs#location", description: "A named place associated with the event, with optional machine-readable locators and public links.")
+    @Lexicon("events.openmusic.defs#location", description: "A place associated with the event, with an optional name, machine-readable locators, and public links.")
     public struct Location: Equatable, Sendable {
         @LexiconField(description: "The organizer's human-readable name for this event location.", minLength: 1, maxLength: 5_000, maxGraphemes: 500)
-        public var name: String
+        public var name: String? = nil
 
         @LexiconField(description: "Event-specific information about this location, such as arrival guidance or an announcement status.", maxLength: 30_000, maxGraphemes: 3_000)
         public var description: String? = nil

@@ -190,8 +190,8 @@ extension Event {
         eventID: Event.ID
     ) -> some PartialSelectStatement<TimeZone> {
         Event
-            .where { $0.id.eq(eventID) }
-            .select(\.timeZone)
+            .where { $0.id.eq(eventID) && $0.timeZone.isNot(nil) }
+            .select { #sql("\($0.timeZone)", as: TimeZone.self) }
     }
 }
 
