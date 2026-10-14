@@ -23,7 +23,8 @@ extension Event {
         self.projectionVersion = projectionVersion
         self.name = name
         self.createdAt = createdAt
-        _ = try domainContent()
+        try Self.validateDomainField(.string(name), named: "name")
+        try Self.validateDomainField(.string(createdAt.rawValue), named: "createdAt")
     }
 
     /// OME-shaped content for AppView domain reads and adapter validation. This

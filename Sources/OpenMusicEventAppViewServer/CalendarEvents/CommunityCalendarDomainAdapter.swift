@@ -17,7 +17,7 @@ enum CommunityCalendarDomainAdapter {
         var diagnostics: [Diagnostic]
     }
 
-    static func project(_ source: AppView.RecordVersion<Data>) throws -> Projection {
+    static func project(_ source: AppView.RecordVersion<Data>, validateContent: Bool = true) throws -> Projection {
         guard source.collection.rawValue == collection,
               source.uri.collection?.rawValue == collection else {
             throw ValidationError("Unexpected Community Calendar source collection")
@@ -121,7 +121,7 @@ enum CommunityCalendarDomainAdapter {
         for key in object.keys.sorted() where !supported.contains(key) {
             diagnostics.append(.init(path: key, message: "Unsupported source field retained in raw record"))
         }
-        _ = try event.domainContent()
+        if validateContent { _ = try event.domainContent() }
         return .init(event: event, diagnostics: diagnostics)
     }
 }

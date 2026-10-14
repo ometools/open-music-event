@@ -6,6 +6,13 @@ import OpenMusicEventLexicon
 import OpenMusicEventRouting
 import SQLiteData
 
+@Table("calendarEventBrowseSearchStage")
+struct CalendarEventBrowseSearchStage: Sendable {
+    @Column(primaryKey: true) var rowid: Int
+    var uri: String
+    var searchText: String
+}
+
 extension OpenMusicEventAppViewStore {
     func rebuildCalendarEventBrowseProjectionIfNeeded(force: Bool = false) throws {
         let isInconsistent = try database.read { database in
@@ -330,6 +337,7 @@ struct CalendarEventBrowseProjection: Codable, Equatable, Sendable {
         searchText additionalSearchText: String = "",
         sourceID: String? = nil,
         deleteExistingSearchDocument: Bool = true,
+        stageIndexes: Bool = false,
         now: Date = .now,
         in database: Database
     ) throws {
@@ -384,11 +392,20 @@ struct CalendarEventBrowseProjection: Codable, Equatable, Sendable {
                 event: encodedEvent
             )
         try Self.upsert { browseRow }.execute(database)
-        try CalendarMapEvent.synchronize(browseRow, now: now, in: database)
+        if !stageIndexes {
+            try CalendarMapEvent.synchronize(browseRow, now: now, in: database)
+        }
         guard let rowID = try Self.find(event.uri.description).select(\.rowid).fetchOne(database) else {
             throw CanonicalBackfillError.corruptRawRecord(event.uri.description)
         }
 
+        if stageIndexes {
+            try CalendarEventBrowseSearchStage.insert {
+                CalendarEventBrowseSearchStage(rowid: rowID, uri: event.uri.description,
+                    searchText: storedEvent.searchText(additionalSearchText))
+            }.execute(database)
+            return
+        }
         if deleteExistingSearchDocument {
             try CalendarEventBrowseSearch.find(rowID).delete().execute(database)
         }

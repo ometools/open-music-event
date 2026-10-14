@@ -14,6 +14,8 @@ struct CommunityCalendarDomainOutcome: Equatable, Sendable {
     var adapterVersion: Int
     var state: String
     var diagnostics: Data
+    var validationState: String = "pending"
+    var validationError: String?
 
     static func registerMigration(into migrator: inout DatabaseMigrator) {
         migrator.registerMigration("Track canonical Community Calendar adaptation") { db in
@@ -30,6 +32,11 @@ struct CommunityCalendarDomainOutcome: Equatable, Sendable {
                 ) STRICT;
                 """)
         }
+        migrator.registerMigration("Track deferred external domain validation") { db in
+            try db.execute(sql: "ALTER TABLE \"\(tableName)\" ADD COLUMN validationState TEXT NOT NULL DEFAULT 'pending' CHECK (validationState IN ('pending','valid','invalid','notApplicable'))")
+            try db.execute(sql: "ALTER TABLE \"\(tableName)\" ADD COLUMN validationError TEXT")
+            try db.execute(sql: "UPDATE \"\(tableName)\" SET validationState='notApplicable' WHERE state != 'projected'")
+        }
     }
 
     static func save(uri: String, cid: String?, sequence: Int64, state: String,
@@ -38,7 +45,8 @@ struct CommunityCalendarDomainOutcome: Equatable, Sendable {
         try Self.upsert {
             Self(uri: uri, cid: cid, sequence: sequence,
                  adapterVersion: CommunityCalendarDomainAdapter.version,
-                 state: state, diagnostics: encoded)
+                 state: state, diagnostics: encoded,
+                 validationState: state == "projected" ? "pending" : "notApplicable")
         }.execute(db)
     }
 }
@@ -50,7 +58,7 @@ extension CommunityCalendarEventProjection {
                                 updateBrowseProjection: Bool = true, in db: Database) throws {
         let projection: CommunityCalendarDomainAdapter.Projection
         do {
-            projection = try CommunityCalendarDomainAdapter.project(current)
+            projection = try CommunityCalendarDomainAdapter.project(current, validateContent: false)
         } catch {
             try CommunityCalendarDomainOutcome.save(
                 uri: current.uri.description, cid: current.cid.rawValue, sequence: current.sequence,
@@ -112,6 +120,35 @@ enum CanonicalBackfillError: Error {
 }
 
 extension OpenMusicEventAppViewStore {
+    @discardableResult
+    func validateCommunityCalendarDomainBatch(limit: Int = 100) throws -> Int {
+        precondition((1...1000).contains(limit))
+        return try database.write { db in
+            let pending = try CommunityCalendarDomainOutcome.where {
+                $0.state.eq("projected") && $0.validationState.eq("pending")
+            }.order(by: \.uri).limit(limit).fetchAll(db)
+            for outcome in pending {
+                guard let uri = ATProto.URI(outcome.uri),
+                      let event = try Event.find(uri).fetchOne(db),
+                      event.cid?.rawValue == outcome.cid else {
+                    throw CanonicalBackfillError.corruptRawRecord(outcome.uri)
+                }
+                let result = Result { _ = try event.domainContent() }
+                let state: String
+                let error: String?
+                switch result {
+                case .success: state = "valid"; error = nil
+                case let .failure(failure): state = "invalid"; error = String(describing: failure)
+                }
+                try CommunityCalendarDomainOutcome.find(outcome.uri).update {
+                    $0.validationState = #bind(state)
+                    $0.validationError = #bind(error)
+                }.execute(db)
+            }
+            return pending.count
+        }
+    }
+
     /// Each call commits one bounded batch and its checkpoint together. A new
     /// adapter version gets a fresh scan; live ingestion uses the same adapter.
     @discardableResult

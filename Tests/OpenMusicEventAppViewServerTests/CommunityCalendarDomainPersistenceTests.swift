@@ -84,6 +84,41 @@ struct CommunityCalendarDomainPersistenceTests {
         let rebuild = try clock.measure {
             while try !store.backfillCommunityCalendarDomainBatch(limit: 100) {}
         }
+        let freshDatabase = try DatabaseQueue(path: directory.appendingPathComponent("fresh.sqlite").path)
+        let freshStore = try OpenMusicEventAppViewStore(database: freshDatabase)
+        let fresh = try clock.measure {
+            try freshBuild(records: records, database: freshDatabase)
+        }
+        let validation = try clock.measure {
+            while try freshStore.validateCommunityCalendarDomainBatch() > 0 {}
+        }
+        let invalid = try freshDatabase.read {
+            try CommunityCalendarDomainOutcome.where { $0.validationState.eq("invalid") }.fetchCount($0)
+        }
+        #expect(invalid == 0)
+        let expectedEvents = try database.read { try Event.order(by: \.id).fetchAll($0) }
+        let rebuiltEvents = try freshDatabase.read { try Event.order(by: \.id).fetchAll($0) }
+        expectNoDifference(rebuiltEvents, expectedEvents)
+        let expectedSearch = try database.read { try CalendarEventBrowseSearch.order(by: \.uri).select { ($0.uri, $0.searchText) }.fetchAll($0) }
+        let rebuiltSearch = try freshDatabase.read { try CalendarEventBrowseSearch.order(by: \.uri).select { ($0.uri, $0.searchText) }.fetchAll($0) }
+        expectNoDifference(rebuiltSearch.map(\.0), expectedSearch.map(\.0))
+        expectNoDifference(rebuiltSearch.map(\.1), expectedSearch.map(\.1))
+        let rebuiltCells = try freshDatabase.read { try CalendarMapCell.order(by: \.id).fetchAll($0) }
+        #expect(rebuiltCells.count == cells.count)
+        for (actual, expected) in zip(rebuiltCells, cells) {
+            #expect(actual.id == expected.id && actual.count == expected.count && actual.activeCount == expected.activeCount)
+            #expect(abs(actual.x - expected.x) < 0.00000001 && abs(actual.y - expected.y) < 0.00000001)
+        }
+        let expectedOutcomes = try database.read { try CommunityCalendarDomainOutcome.order(by: \.uri).fetchAll($0) }
+        let rebuiltOutcomes = try freshDatabase.read { try CommunityCalendarDomainOutcome.order(by: \.uri).fetchAll($0) }
+        for (actual, expected) in zip(rebuiltOutcomes, expectedOutcomes) {
+            #expect(actual.uri == expected.uri && actual.cid == expected.cid && actual.state == expected.state)
+        }
+        #expect(rebuiltOutcomes.count == expectedOutcomes.count)
+        // Serving queries use the same compact rows and indexed search after the bulk build.
+        let query = CalendarBrowseQuery.Parameters(catalogs: [ATProto.NSID(CommunityCalendarDomainAdapter.collection)], query: "music", limit: 50)
+        expectNoDifference(try freshStore.browseEventSummaries(query).events.map(\.uri), try store.browseEventSummaries(query).events.map(\.uri))
+        print("Fresh canonical sample: records=\(records.count), fresh=\(fresh), validation=\(validation), invalid=\(invalid), incrementalInitial=\(initial), incrementalRebuild=\(rebuild)")
         try database.read { db throws -> Void in
             #expect(try CommunityCalendarDomainOutcome.all.fetchCount(db) == records.count)
             expectNoDifference(try Event.all.fetchCount(db), events)
@@ -178,6 +213,10 @@ struct CommunityCalendarDomainPersistenceTests {
             _ = try indexer.apply(.put(original), checkpointID: "canonical-story")
             let saved = try database.read { try #require(try Event.find(uri).fetchOne($0)) }
             expectNoDifference(saved.cid, original.cid)
+            #expect(try database.read { try CommunityCalendarDomainOutcome.find(uri.description).fetchOne($0)?.validationState } == "pending")
+            #expect(try store.validateCommunityCalendarDomainBatch(limit: 1) == 1)
+            #expect(try store.validateCommunityCalendarDomainBatch(limit: 1) == 0)
+            #expect(try database.read { try CommunityCalendarDomainOutcome.find(uri.description).fetchOne($0)?.validationState } == "valid")
             expectNoDifference(saved.start, .known(.time(.init(value: "2026-09-04T00:00:00Z"))))
             #expect(saved.timeZone == nil)
             try database.read { db throws -> Void in
@@ -255,6 +294,32 @@ struct CommunityCalendarDomainPersistenceTests {
                 #expect(try Event.find(uri).fetchOne(db) == nil)
                 #expect(try CommunityCalendarDomainOutcome.find(uri.description).fetchOne(db) == nil)
             }
+        }
+    }
+
+    @Test func `deferred validation records a semantic failure without deleting source content`() throws {
+        let database = try DatabaseQueue()
+        let store = try OpenMusicEventAppViewStore(database: database)
+        try withDependencies { $0.defaultDatabase = database } operation: {
+            let record = try AppView.RecordVersion<Data>(collection: "community.lexicon.calendar.event",
+                uri: uri, cid: "bafy-original", value: payload, sequence: 1)
+            _ = try store.appViewRecordIndexer(tangledWebhookConfiguration: nil).apply(.put(record), checkpointID: "validation")
+            // Simulate a structurally decodable but semantically invalid derived row.
+            try database.write { db in
+                try Event.find(uri).update { $0.name = "" }.execute(db)
+            }
+            #expect(try store.validateCommunityCalendarDomainBatch(limit: 1) == 1)
+            try database.read { db throws -> Void in
+                let outcome = try #require(try CommunityCalendarDomainOutcome.find(uri.description).fetchOne(db))
+                #expect(outcome.validationState == "invalid")
+                #expect(outcome.validationError?.isEmpty == false)
+                #expect(try Event.find(uri).fetchCount(db) == 1)
+            }
+            expectNoDifference(try AppViewIndexDatabase.record(uri: uri)?.value, payload)
+            // A later source revision must be validated anew, not inherit the previous result.
+            _ = try store.appViewRecordIndexer(tangledWebhookConfiguration: nil).apply(.put(
+                AppView.RecordVersion<Data>(collection: record.collection, uri: uri, cid: "bafy-new", value: payload, sequence: 2)), checkpointID: "validation")
+            #expect(try database.read { try CommunityCalendarDomainOutcome.find(uri.description).fetchOne($0)?.validationState } == "pending")
         }
     }
 

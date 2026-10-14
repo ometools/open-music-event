@@ -24,6 +24,7 @@ extension CalendarEventBrowseProjection {
     static func upsertCanonicalEvent(
         _ event: CanonicalEvent,
         deleteExistingSearchDocument: Bool = true,
+        stageIndexes: Bool = false,
         in database: Database
     ) throws {
         let id = event.id
@@ -47,6 +48,7 @@ extension CalendarEventBrowseProjection {
             searchText: searchText.joined(separator: " "),
             sourceID: event.projectionVersion == nil ? "venue:\(id.authority.description)" : nil,
             deleteExistingSearchDocument: deleteExistingSearchDocument,
+            stageIndexes: stageIndexes,
             in: database
         )
     }
