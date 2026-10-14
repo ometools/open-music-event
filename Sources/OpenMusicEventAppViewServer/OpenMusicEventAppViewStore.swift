@@ -27,6 +27,7 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
             state: initiallyReady ? .ready(cursor: nil) : .catchingUp
         )
         try Self.migrate(database)
+        try requireCompletedCanonicalRebuild()
         while try !backfillCommunityCalendarDomainBatch() {}
         try database.write { db in
             for publisher in communityCalendarExcludedPublishers {
@@ -68,6 +69,14 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
         )
     }
 
+    init(rebuilding database: any DatabaseWriter) throws {
+        self.database = database
+        self.communityCalendarExcludedPublishers = []
+        self.webhookSecretProtection = nil
+        self.readiness = OpenMusicEventAppViewReadiness(state: .catchingUp)
+        try Self.migrate(database)
+    }
+
     private static func migrate(_ database: any DatabaseWriter) throws {
         var migrator = DatabaseMigrator()
         AppViewIndexMigrations.register(into: &migrator)
@@ -90,6 +99,7 @@ public struct OpenMusicEventAppViewStore: WebhookInboxStore, Sendable {
         WebhookInboxSchema.registerMigration(into: &migrator)
         TangledWorkspaceProposalSchema.registerMigration(into: &migrator)
         WebhookSecretSchema.registerMigration(into: &migrator)
+        CanonicalCalendarRebuildState.registerMigration(into: &migrator)
         try migrator.migrate(database)
     }
 }

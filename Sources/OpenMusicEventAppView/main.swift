@@ -2,6 +2,22 @@ import Foundation
 import OpenMusicEventAppViewServer
 
 switch try AppViewCommand(arguments: Array(CommandLine.arguments.dropFirst())) {
+case let .rebuildCanonicalCalendar(source, destination):
+    let started = Date()
+    do {
+    let report = try OpenMusicEventAppViewServer.rebuildCanonicalCalendar(
+        fromBackup: URL(fileURLWithPath: source),
+        destination: URL(fileURLWithPath: destination)
+    ) { message in
+        try FileHandle.standardOutput.write(contentsOf: Data((message + "\n").utf8))
+    }
+    print("Elapsed: \(Date().timeIntervalSince(started)) seconds")
+    guard report.passed else { exit(EXIT_FAILURE) }
+    } catch {
+        try FileHandle.standardError.write(contentsOf: Data("Rebuild failed: \(error)\n".utf8))
+        exit(EXIT_FAILURE)
+    }
+
 case .serve:
     let configuration = try AppViewConfiguration.fromEnvironment()
     let notificationProvider = try await configuration.notificationProvider()
@@ -62,6 +78,7 @@ case .help:
 }
 
 private enum AppViewCommand: Equatable {
+    case rebuildCanonicalCalendar(source: String, destination: String)
     case serve
     case setTangledWebhookSecret(watchID: String, secretFile: String?)
     case backfillSourceArtifacts
@@ -69,6 +86,7 @@ private enum AppViewCommand: Equatable {
 
     static let usage = """
         USAGE: OpenMusicEventAppView [serve]
+               OpenMusicEventAppView rebuild-canonical-calendar --from-backup <path> --output <new-path>
                OpenMusicEventAppView set-tangled-webhook-secret --watch-id <watch-id> [--secret-file <path>]
                OpenMusicEventAppView backfill-source-artifacts
         """
@@ -79,6 +97,12 @@ private enum AppViewCommand: Equatable {
             return
         }
         switch command {
+        case "rebuild-canonical-calendar":
+            guard arguments.count == 5, arguments[1] == "--from-backup", arguments[3] == "--output" else {
+                throw AppViewCommandError.unexpectedArguments(Array(arguments.dropFirst()))
+            }
+            self = .rebuildCanonicalCalendar(source: arguments[2], destination: arguments[4])
+
         case "serve":
             guard arguments.count == 1 else {
                 throw AppViewCommandError.unexpectedArguments(Array(arguments.dropFirst()))

@@ -85,7 +85,7 @@ struct CommunityCalendarDomainPersistenceTests {
             while try !store.backfillCommunityCalendarDomainBatch(limit: 100) {}
         }
         let freshDatabase = try DatabaseQueue(path: directory.appendingPathComponent("fresh.sqlite").path)
-        let freshStore = try OpenMusicEventAppViewStore(database: freshDatabase)
+        let freshStore = try OpenMusicEventAppViewStore(rebuilding: freshDatabase)
         let fresh = try clock.measure {
             try freshBuild(records: records, database: freshDatabase)
         }
