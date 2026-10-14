@@ -237,53 +237,14 @@ struct NavigationTests {
     func canonicalEventRouteHasAnExplicitRecordPath() {
         #expect(
             AppRoute.event(canonicalRouteEventID, nil).path
-                == "/records/did%3Aplc%3Aorganizer/3mrdbziccpcah"
+                == "/events/did%3Aplc%3Aorganizer/3mrdbziccpcah"
         )
     }
 
     @Test(arguments: [
-        ("https://festival.example/events/2026", AppRoute.event(canonicalRouteEventID, nil)),
-        ("https://festival.example/events/2026/schedule", AppRoute.event(canonicalRouteEventID, .schedule)),
-        ("https://festival.example:443/events/2026", AppRoute.event(canonicalRouteEventID, nil)),
-    ])
-    func brandedEventRouteClaimsResolveIntoDurableRoutes(
-        urlString: String,
-        expected: AppRoute
-    ) throws {
-        let claim = BrandedEventRouteClaim(
-            host: "festival.example",
-            eventClaim: "2026",
-            eventID: canonicalRouteEventID
-        )
-        let url = try #require(URL(string: urlString))
-        let route = try #require(AppRoute(url: url, brandedClaims: [claim]))
-
-        expectNoDifference(route, expected)
-        #expect(route.path == expected.path)
-        #expect(AppRoute(url: url) == nil)
-    }
-
-    @Test(arguments: [
-        "https://somewhere-else.example/events/2026",
-        "https://festival.example/events/2025",
-        "http://festival.example/events/2026",
-        "https://festival.example:8443/events/2026",
-    ])
-    func brandedEventRouteClaimsRequireTheExactSecureOrigin(urlString: String) throws {
-        let claim = BrandedEventRouteClaim(
-            host: "festival.example",
-            eventClaim: "2026",
-            eventID: canonicalRouteEventID
-        )
-        let url = try #require(URL(string: urlString))
-
-        #expect(AppRoute(url: url, brandedClaims: [claim]) == nil)
-    }
-
-    @Test(arguments: [
-        "https://example.com/records/did%3Aplc%3Aorganizer/3mrdbziccpcah",
-        "records/did%3Aplc%3Aorganizer/3mrdbziccpcah",
-        "//example.com/records/did%3Aplc%3Aorganizer/3mrdbziccpcah",
+        "https://example.com/events/did%3Aplc%3Aorganizer/3mrdbziccpcah",
+        "events/did%3Aplc%3Aorganizer/3mrdbziccpcah",
+        "//example.com/events/did%3Aplc%3Aorganizer/3mrdbziccpcah",
     ])
     func appRouteRejectsNotificationValuesThatAreNotAppPaths(value: String) {
         #expect(AppRoute(notificationRoute: value) == nil)
@@ -292,14 +253,14 @@ struct NavigationTests {
     @Test
     func appRouteAcceptsEditEventPathAsWorkspace() throws {
         let url = try #require(URL(
-            string: "https://openmusicevent.app/records/did%3Aplc%3Aorganizer/3mrdbziccpcah/edit"
+            string: "https://openmusicevent.app/events/did%3Aplc%3Aorganizer/3mrdbziccpcah/edit"
         ))
         #expect(AppRoute(url: url) == AppRoute.event(canonicalRouteEventID, .workspace))
     }
 
     @Test(arguments: [
-        "https://openmusicevent.app/records/did%3Aplc%3Aorganizer/3mrdbziccpcah/people",
-        "https://openmusicevent.app/records/did%3Aplc%3Aorganizer/3mrdbziccpcah/participants/3mrdbziccpcaj",
+        "https://openmusicevent.app/events/did%3Aplc%3Aorganizer/3mrdbziccpcah/people",
+        "https://openmusicevent.app/events/did%3Aplc%3Aorganizer/3mrdbziccpcah/participants/3mrdbziccpcaj",
     ])
     func appRouteRejectsOldContributorURLs(urlString: String) throws {
         let url = try #require(URL(string: urlString))
@@ -307,9 +268,9 @@ struct NavigationTests {
     }
 
     @Test(arguments: [
-        "https://openmusicevent.app/records/did%3Aplc%3Aorganizer/3mrdbziccpcah/performances",
-        "https://openmusicevent.app/records/did%3Aplc%3Aorganizer/3mrdbziccpcah/performances/3mrdbziccpcam/extra",
-        "https://openmusicevent.app/records/did%3Aplc%3Aorganizer/3mrdbziccpcah/performance/3mrdbziccpcam",
+        "https://openmusicevent.app/events/did%3Aplc%3Aorganizer/3mrdbziccpcah/performances",
+        "https://openmusicevent.app/events/did%3Aplc%3Aorganizer/3mrdbziccpcah/performances/3mrdbziccpcam/extra",
+        "https://openmusicevent.app/events/did%3Aplc%3Aorganizer/3mrdbziccpcah/performance/3mrdbziccpcam",
     ])
     func appRouteRejectsIncompleteOrUnsupportedPerformanceURLs(urlString: String) throws {
         let url = try #require(URL(string: urlString))
@@ -317,9 +278,9 @@ struct NavigationTests {
     }
 
     @Test(arguments: [
-        "https://openmusicevent.app/records/did%3Aplc%3Aorganizer/3mrdbziccpcah/communications/general/posts",
-        "https://openmusicevent.app/records/did%3Aplc%3Aorganizer/3mrdbziccpcah/communications/general/post/welcome",
-        "https://openmusicevent.app/records/did%3Aplc%3Aorganizer/3mrdbziccpcah/communications/general/posts/welcome/extra",
+        "https://openmusicevent.app/events/did%3Aplc%3Aorganizer/3mrdbziccpcah/communications/general/posts",
+        "https://openmusicevent.app/events/did%3Aplc%3Aorganizer/3mrdbziccpcah/communications/general/post/welcome",
+        "https://openmusicevent.app/events/did%3Aplc%3Aorganizer/3mrdbziccpcah/communications/general/posts/welcome/extra",
     ])
     func appRouteRejectsIncompleteOrUnsupportedCommunicationURLs(urlString: String) throws {
         let url = try #require(URL(string: urlString))
@@ -695,22 +656,16 @@ struct NavigationTests {
     }
 
     @Test
-    func brandedEventURLInstallsAndMountsTheDurableEvent() async throws {
+    func canonicalEventURLInstallsAndMountsTheDurableEvent() async throws {
         let database = try makePreparedDatabase()
         let eventID = canonicalRouteEventID
         let graph = try canonicalNavigationGraph(id: eventID)
-        let claim = BrandedEventRouteClaim(
-            host: "wickedwoods.openmusicevent.app",
-            eventClaim: "2026",
-            eventID: eventID
-        )
         let store = makeCanonicalRootHarnessStore(
             database: database,
-            client: EventRecordClient { _ in graph },
-            brandedEventRouteClaims: [claim]
+            client: EventRecordClient { _ in graph }
         )
         let url = try #require(URL(
-            string: "https://wickedwoods.openmusicevent.app/events/2026"
+            string: "https://openmusicevent.app" + AppRoute.event(eventID, nil).path
         ))
 
         await store.send(.root(.openURL(url)))?.value
@@ -1416,15 +1371,13 @@ struct NavigationTests {
     func makeCanonicalRootHarnessStore(
         database: any DatabaseWriter,
         client: EventRecordClient,
-        selectedEventIDAtLaunch: Event.ID? = nil,
-        brandedEventRouteClaims: [BrandedEventRouteClaim] = []
+        selectedEventIDAtLaunch: Event.ID? = nil
     ) -> TestStore<RootHarness> {
         withDependencies {
             $0.context = .test
             $0.date = .constant(Date(timeIntervalSince1970: 0))
             $0.defaultDatabase = database
             $0.eventRecords = client
-            $0.brandedEventRouteClaims = brandedEventRouteClaims
         } operation: {
             var state = RootHarness.State()
             state.root = OpenMusicEventAppRoot.State(

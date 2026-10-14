@@ -4,6 +4,18 @@ import OpenMusicEventRouting
 import Testing
 
 struct OpenMusicEventRoutingTests {
+    @Test func `event paths round trip encoded publisher identities`() throws {
+        let id = Event.ID("at://did:plc:arihfpbkf7geye7jj6v45xrz/events.openmusic.event/3mxjgu6rg2225")!
+        let path = openMusicEventEventPathRouter.path(for: id)
+        expectNoDifference(path, "/events/did%3Aplc%3Aarihfpbkf7geye7jj6v45xrz/3mxjgu6rg2225")
+        let parsed = try #require(openMusicEventEventPathRouter.parse(path))
+        expectNoDifference(parsed.eventID, id)
+        expectNoDifference(parsed.tail, [])
+        expectNoDifference(openMusicEventEventPathRouter.parse(path + "/schedule")?.tail, ["schedule"])
+        #expect(openMusicEventEventPathRouter.parse("/events/wicked-woods-2026") == nil)
+        #expect(openMusicEventEventPathRouter.parse("/events/did%253Aplc%253Avenue/key") == nil)
+        #expect(openMusicEventEventPathRouter.parse("/events/did%3Aplc%3Avenue/key%2Fextra") == nil)
+    }
     @Test func `parses appview paths into typed routes`() throws {
         expectNoDifference(
             openMusicEventPathRouter.parse("/"),
@@ -153,64 +165,15 @@ struct OpenMusicEventRoutingTests {
                 eventID: eventID,
                 channelID: channelID
             ),
-            "/records/did%3Aplc%3Aexample/3mrdbziccpcah/communications/at%3A%2F%2Fdid%3Aplc%3Aexample%2Fsocial.ome.category%2F3mrdbziccpcaj"
+            "/events/did%3Aplc%3Aexample/3mrdbziccpcah/communications/at%3A%2F%2Fdid%3Aplc%3Aexample%2Fsocial.ome.category%2F3mrdbziccpcaj"
         )
     }
 
-    @Test func `routes an exact branded event claim by host`() {
-        let claim = BrandedEventRouteClaim(
-            host: "wickedwoods.openmusicevent.app",
-            eventClaim: "2026",
-            eventID: wickedWoodsEventID
-        )
-        let router = OpenMusicEventRouter(
-            configuration: OpenMusicEventRoutingConfiguration(
-                brandedEventRouteClaims: [claim]
-            )
-        )
-
-        expectNoDifference(
-            router.route(
-                OpenMusicEventIncomingRequest(
-                    host: OpenMusicEventHost(rawValue: "wickedwoods.openmusicevent.app"),
-                    path: OpenMusicEventPath(rawValue: "/events/2026")
-                )
-            ),
-            .brandedEvent(claim)
-        )
-        expectNoDifference(
-            router.url(for: .brandedEvent(claim)).absoluteString,
-            "https://wickedwoods.openmusicevent.app/events/2026"
-        )
-    }
-
-    @Test func `rejects a branded event route on another host claim or nested path`() {
-        let claim = BrandedEventRouteClaim(
-            host: "wickedwoods.openmusicevent.app",
-            eventClaim: "2026",
-            eventID: wickedWoodsEventID
-        )
-        let router = OpenMusicEventRouter(
-            configuration: OpenMusicEventRoutingConfiguration(
-                brandedEventRouteClaims: [claim]
-            )
-        )
-
-        #expect(router.route(.init(
-            host: .init(rawValue: "openmusicevent.app"),
+    @Test func `does not resolve branded event URLs`() {
+        #expect(OpenMusicEventRouter().route(.init(
+            host: .init(rawValue: "wickedwoods.openmusicevent.app"),
             path: .init(rawValue: "/events/2026")
         )) == nil)
-        #expect(router.route(.init(
-            host: .init(rawValue: "wickedwoods.openmusicevent.app"),
-            path: .init(rawValue: "/events/2025")
-        )) == nil)
-        #expect(router.route(.init(
-            host: .init(rawValue: "wickedwoods.openmusicevent.app"),
-            path: .init(rawValue: "/events/2026/schedule")
-        )) == nil)
     }
-}
 
-private let wickedWoodsEventID = Event.ID(
-    "at://did:plc:5df2u7ief6m6tn77jznicxob/events.openmusic.event/3mrdbziccpcah"
-)!
+}

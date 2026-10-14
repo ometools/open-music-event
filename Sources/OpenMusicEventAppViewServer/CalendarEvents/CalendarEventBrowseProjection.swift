@@ -3,6 +3,7 @@ import ComposableCalendarEvents
 import Foundation
 import GRDB
 import OpenMusicEventLexicon
+import OpenMusicEventRouting
 import SQLiteData
 
 extension OpenMusicEventAppViewStore {
@@ -124,12 +125,8 @@ extension OpenMusicEventAppViewStore {
             event.source.appViewHost = appViewHost
             if let canonical = try Event.find(uri).fetchOne(database),
                canonical.hasDetailsBeyondBrowse,
-               let recordKey = uri.rkey?.rawValue,
                let viewerURL = URL(
-                   string: "https://\(appViewHost.rawValue)/record/"
-                       + uri.authority.description
-                       + "/"
-                       + recordKey
+                   string: "https://\(appViewHost.rawValue)" + openMusicEventEventPathRouter.path(for: uri)
                )
             {
                 event.links.append(

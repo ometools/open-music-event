@@ -12,7 +12,6 @@ public struct AppViewConfiguration: Sendable {
         siteRoot: URL? = nil,
         oauthClient: OpenMusicEventOAuthClient = .production,
         wellKnownRoot: URL? = nil,
-        brandedEventRouteClaims: [BrandedEventRouteClaim] = [],
         databaseURL: URL? = nil,
         ingestion: AppViewIngestionConfiguration? = nil,
         ingestions: [AppViewIngestionConfiguration] = [],
@@ -31,7 +30,6 @@ public struct AppViewConfiguration: Sendable {
         self.publicAppViewHost = publicAppViewHost
         self.siteRoot = siteRoot ?? Bundle.module.resourceURL!.appendingPathComponent("Site")
         self.wellKnownRoot = wellKnownRoot ?? Bundle.module.resourceURL!.appendingPathComponent("WellKnown")
-        self.brandedEventRouteClaims = brandedEventRouteClaims
         self.databaseURL = databaseURL
         self.ingestions = ingestions.isEmpty ? ingestion.map { [$0] } ?? [] : ingestions
         self.geoapifyAPIKey = geoapifyAPIKey
@@ -53,7 +51,6 @@ public struct AppViewConfiguration: Sendable {
     public var publicAppViewHost: ATProto.PDSHost
     public var siteRoot: URL
     public var wellKnownRoot: URL
-    public var brandedEventRouteClaims: [BrandedEventRouteClaim]
     public var databaseURL: URL?
     public var ingestion: AppViewIngestionConfiguration? {
         get { ingestions.first }

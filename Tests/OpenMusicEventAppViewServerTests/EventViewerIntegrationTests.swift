@@ -72,12 +72,20 @@ import Testing
         #expect(model.contributors.first?.performanceIDs == [uri("events.openmusic.programItem")])
         var configuration = AppViewConfiguration(host: "127.0.0.1", port: 0)
         configuration.webPDSHosts = [owner: "pds.example.test"]
-        configuration.brandedEventRouteClaims = [.init(host: "localhost", eventClaim: "woods", eventID: eventID)]
         let app = try OpenMusicEventAppViewServer.application(configuration: configuration, store: store)
         try await app.test(.router) { client in
+            // Follow the actual AppView link rather than constructing a second route in the test.
+            let detail = try #require(try store.calendarEvent(uri: eventID, appViewHost: "localhost"))
+            let link = try #require(detail.links.first { $0.source == "app.openmusicevent.eventViewer" })
+            expectNoDifference(link.uri.path(percentEncoded: true), openMusicEventEventPathRouter.path(for: eventID))
+            try await client.execute(uri: link.uri.path(percentEncoded: true), method: .get) { response in
+                #expect(response.status == .ok)
+                #expect(String(buffer: response.body).contains("Wicked Woods"))
+                #expect(String(buffer: response.body).contains("Midnight set"))
+            }
             // The initial HTTP document contains the schedule, without client-side fetching.
             for kind in ["single-stage", "many-horizontal", "many-vertical", "list"] {
-                try await client.execute(uri: "/events/woods?schedule-kind=\(kind)", method: .get) { response in
+                try await client.execute(uri: "/events/did%3Aplc%3Aorganizer/3mrdbziccpcah?schedule-kind=\(kind)", method: .get) { response in
                     #expect(response.status == .ok)
                     let html = String(buffer: response.body)
                     #expect(html.contains("Midnight set"))
@@ -91,7 +99,7 @@ import Testing
             let performance = try #require(model.schedulePerformances.first)
             #expect(performance.detailURL.contains("performance="))
             #expect(performance.detailURL.contains("program="))
-            try await client.execute(uri: "/events/woods" + performance.detailURL, method: .get) { response in
+            try await client.execute(uri: "/events/did%3Aplc%3Aorganizer/3mrdbziccpcah" + performance.detailURL, method: .get) { response in
                 #expect(response.status == .ok)
                 let html = String(buffer: response.body)
                 #expect(html.contains("Back to schedule"))
@@ -105,17 +113,17 @@ import Testing
                 #expect(html.contains("1:00 AM"))
                 #expect(!html.contains("class=\"timeline-card"))
             }
-            try await client.execute(uri: "/events/woods?performance=unknown", method: .get) { response in
+            try await client.execute(uri: "/events/did%3Aplc%3Aorganizer/3mrdbziccpcah?performance=unknown", method: .get) { response in
                 #expect(response.status == .notFound)
             }
-            try await client.execute(uri: "/events/woods?feature=communications", method: .get) { response in
+            try await client.execute(uri: "/events/did%3Aplc%3Aorganizer/3mrdbziccpcah?feature=communications", method: .get) { response in
                 #expect(String(buffer: response.body).contains("Bring water &lt;script&gt;"))
                 #expect(String(buffer: response.body).contains("Pinned"))
             }
-            try await client.execute(uri: "/events/woods?feature=contributors&q=missing", method: .get) { response in
+            try await client.execute(uri: "/events/did%3Aplc%3Aorganizer/3mrdbziccpcah?feature=contributors&q=missing", method: .get) { response in
                 #expect(!String(buffer: response.body).contains("Forest Artist"))
             }
-            try await client.execute(uri: "/events/woods?stage=unrelated", method: .get) { response in
+            try await client.execute(uri: "/events/did%3Aplc%3Aorganizer/3mrdbziccpcah?stage=unrelated", method: .get) { response in
                 #expect(response.status == .notFound)
             }
             try await client.execute(uri: "/event-media?record=not-a-record&cid=anything", method: .get) { response in
@@ -128,7 +136,7 @@ import Testing
                 #expect(response.headers[.location]?.contains("did=did:plc:organizer") == true)
             }
             await store.readiness.markCatchingUp()
-            try await client.execute(uri: "/events/woods", method: .get) { response in
+            try await client.execute(uri: "/events/did%3Aplc%3Aorganizer/3mrdbziccpcah", method: .get) { response in
                 #expect(response.status == .serviceUnavailable)
             }
             await store.readiness.markReady(cursor: 8)
@@ -139,7 +147,7 @@ import Testing
                 _ = try indexer.apply(.put(version(original.0, edited, sequence: 20)), checkpointID: "graph-v1")
                 _ = try indexer.apply(.put(version(original.0, original.1, sequence: 5)), checkpointID: "graph-v1")
             }
-            try await client.execute(uri: "/events/woods?feature=contributors", method: .get) { response in
+            try await client.execute(uri: "/events/did%3Aplc%3Aorganizer/3mrdbziccpcah?feature=contributors", method: .get) { response in
                 #expect(String(buffer: response.body).contains("Updated Artist"))
                 #expect(!String(buffer: response.body).contains("Forest Artist"))
             }
@@ -147,7 +155,7 @@ import Testing
             try withDependencies { $0.defaultDatabase = database } operation: {
                 _ = try indexer.apply(.delete(.init(collection: "events.openmusic.contributor", uri: ATProto.URI(uri("events.openmusic.contributor"))!, sequence: 21)), checkpointID: "graph-v1")
             }
-            try await client.execute(uri: "/events/woods", method: .get) { response in
+            try await client.execute(uri: "/events/did%3Aplc%3Aorganizer/3mrdbziccpcah", method: .get) { response in
                 #expect(response.status == .serviceUnavailable)
             }
         }

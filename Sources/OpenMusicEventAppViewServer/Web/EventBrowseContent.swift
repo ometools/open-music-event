@@ -70,8 +70,7 @@ extension OpenMusicEventAppViewServer {
             case .known(.hybrid): mode = "hybrid"
             default: mode = ""
             }
-            let claim = routeResolver.configuration.brandedEventRouteClaims.first { $0.eventID == event.id && $0.host.lowercased() == host.lowercased() }
-            let url = claim.map { "/events/" + $0.eventClaim } ?? ("/record/" + event.id.authority.description + "/" + (event.id.rkey?.rawValue ?? ""))
+            let url = openMusicEventEventPathRouter.path(for: event.id)
             let images = mediaImages(event.media)
             let image = images.first { $0.role == .known(.logo) } ?? images.first
             return Entry(row: .init(title: event.name, date: date, imageURL: image.flatMap { webImage($0, owner: event.id) }, url: url),

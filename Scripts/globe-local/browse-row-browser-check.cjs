@@ -18,6 +18,7 @@ const events = [
   { name: 'Poster show', publisherAvatarURL: avatar,
     markerMedia: { url: 'https://images.example/concert.webp', role: 'poster', renderKind: 'fullImage' } },
   { name: 'Blob show', markerMedia: { url: '/event-media?record=concert&cid=photo', role: 'photo', renderKind: 'fullImage' } },
+  { name: 'Wicked Woods', uri: 'at://did:plc:woods/events.openmusic.event/woods', catalog: 'events.openmusic.event', hasEventViewer: true },
 ].map((event, index) => ({ uri: `at://did:plc:venue/${catalog}/${index}`, catalog, ...event }));
 
 (async () => {
@@ -31,6 +32,10 @@ const events = [
         if (url.origin !== 'http://ome.test') return route.abort();
         if (url.pathname.endsWith('getPublishers')) return route.fulfill({ json: { publishers: [], defaults: { mode: 'allExcept', publishers: [] } } });
         if (url.pathname.endsWith('browseEventSummaries')) return route.fulfill({ json: { events, hasMore: false } });
+        if (url.pathname.endsWith('getEvent')) return route.fulfill({ json: {
+          ...events.find(event => event.uri === url.searchParams.get('uri')),
+          links: [{ name: 'Enter Event', source: 'app.openmusicevent.eventViewer', uri: 'https://metadata.ome.test/events/did%3Aplc%3Awoods/woods' }]
+        } });
         if (url.pathname.includes('/xrpc/')) return route.fulfill({ json: { events: [], clusters: [] } });
         if (url.pathname.includes('maplibre-gl') && url.pathname.endsWith('.js')) return route.fulfill({ body: '' });
         const filename = path.join(site, url.pathname === '/' ? 'index.html' : url.pathname);
@@ -68,6 +73,10 @@ const events = [
       assert.match(london, timeZone === 'Europe/London' ? /^5:00 PM – 7:00 PM$/ : /^5:00 PM – 7:00 PM \((GMT\+1|BST)\)$/);
       if (timeZone === 'Europe/London') assert.equal(await row('Clock change').locator('.event-time').innerText(), '1:30 AM (MDT) – 1:30 AM (MST)');
       assert(!/to be announced|not supplied|not specified|Open for location/.test(await page.locator('#eventList').innerText()));
+      await row('Wicked Woods').locator('button').click();
+      const enter = row('Wicked Woods').locator('.event-enter-button');
+      await enter.waitFor();
+      assert.equal(await enter.getAttribute('href'), '/events/did%3Aplc%3Awoods/woods');
       assert.deepEqual(errors, []);
       await context.close();
     }

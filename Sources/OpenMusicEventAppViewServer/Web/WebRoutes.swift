@@ -55,16 +55,6 @@ extension OpenMusicEventAppViewServer {
             )
         }
 
-        router.get("/events/{eventClaim}") { request, context async throws -> Response in
-            let route = try routeResolver.route(host: request.authority,
-                path: "/events/\(context.parameters.get("eventClaim") ?? "")")
-            guard case .brandedEvent(let claim) = route else { throw HTTPError(.notFound) }
-            if let store, case .catchingUp = await store.readiness.snapshot() {
-                return textResponse("Event index is catching up.", status: .serviceUnavailable)
-            }
-            return try viewerResponse(claim: claim, canonicalURL: routeResolver.url(for: route),
-                query: request.uri.query, store: store)
-        }
         router.get("/event-media") { request, _ async throws -> Response in
             let selection = try EventViewerSelection(query: request.uri.query)
             guard let recordText = selection.values["record"], let record = ATProto.URI(recordText),
@@ -95,14 +85,13 @@ extension OpenMusicEventAppViewServer {
             return Response(status: .temporaryRedirect, headers: [.location: url])
         }
 
-        router.get("/record/{repo}/{rkey}") { request, context async throws -> Response in
-            guard let repo = context.parameters.get("repo"), let rkey = context.parameters.get("rkey"),
-                  let uri = ATProto.URI("at://" + repo + "/events.openmusic.event/" + rkey),
-                  case .did = uri.authority else { throw HTTPError(.badRequest) }
+        router.get("/events/{event}/{rkey}") { request, _ async throws -> Response in
+            guard let route = openMusicEventEventPathRouter.parse(request.uri.path),
+                  route.tail.isEmpty else { throw HTTPError(.badRequest) }
+            let uri = route.eventID
             guard let store, try store.event(id: uri) != nil else { throw HTTPError(.notFound) }
             if case .catchingUp = await store.readiness.snapshot() { return textResponse("Event index is catching up.", status: .serviceUnavailable) }
-            let claim = BrandedEventRouteClaim(host: request.authority, eventClaim: "event", eventID: uri)
-            return try viewerResponse(claim: claim, canonicalURL: URL(string: "https://" + request.authority + "/record/" + uri.authority.description + "/" + (uri.rkey?.rawValue ?? ""))!, query: request.uri.query, store: store)
+            return try viewerResponse(eventID: uri, canonicalURL: URL(string: "https://" + request.authority + openMusicEventEventPathRouter.path(for: uri))!, query: request.uri.query, store: store)
         }
         router.get("/browse") { request, _ async throws -> Response in
             if let store, case .catchingUp = await store.readiness.snapshot() { return textResponse("Event index is catching up.", status: .serviceUnavailable) }
@@ -256,9 +245,6 @@ extension OpenMusicEventAppViewServer {
                 throw HTTPError(.notFound)
             }
             return file.response
-
-        case let .brandedEvent(claim):
-            return try viewerResponse(claim: claim, canonicalURL: routeResolver.url(for: route), query: nil, store: store)
 
         case .health:
             return textResponse("ok")

@@ -5,12 +5,6 @@ public enum AppViewConfigurationError: Error, Equatable, Sendable {
     case invalidIngestionConfigurations(String)
     case invalidGeocodingOverrides(String)
     case invalidCommunityCalendarPublishers
-    case brandedEventRouteConfigurationInvalid(String)
-    case brandedEventRouteConfigurationUnreadable(String)
-    case duplicateBrandedEventRoute(host: String, eventClaim: String)
-    case invalidBrandedEventRouteClaim(String)
-    case invalidBrandedEventRouteHost(String)
-    case invalidBrandedEventRouteEventURI(String)
 
     case apnsPrivateKeyUnreadable(String)
     case duplicateNotificationProviderApplicationID(

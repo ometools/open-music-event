@@ -148,7 +148,6 @@ public extension AppViewConfiguration {
             siteRoot: environment["OME_APPVIEW_SITE_ROOT"].map(URL.init(fileURLWithPath:)),
             oauthClient: oauthClient,
             wellKnownRoot: environment["OME_APPVIEW_WELL_KNOWN_ROOT"].map(URL.init(fileURLWithPath:)),
-            brandedEventRouteClaims: try brandedEventRouteClaims(environment: environment),
             databaseURL: databaseURL,
             ingestions: ingestions,
             geoapifyAPIKey: environment["GEOAPIFY_API_KEY"].flatMap {
@@ -206,8 +205,7 @@ public extension AppViewConfiguration {
                 environment["OME_APPVIEW_PUBLIC_HOST"] ?? "openmusicevent.app"
             ),
             siteRoot: siteRoot,
-            wellKnownRoot: wellKnownRoot,
-            brandedEventRouteClaims: try brandedEventRouteClaims(environment: environment)
+            wellKnownRoot: wellKnownRoot
         )
     }
 

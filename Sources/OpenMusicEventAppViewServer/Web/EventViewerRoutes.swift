@@ -11,16 +11,16 @@ import SQLiteData
 
 extension OpenMusicEventAppViewServer {
     static func viewerResponse(
-        claim: BrandedEventRouteClaim,
+        eventID: Event.ID,
         canonicalURL: URL,
         query: String?,
         store: OpenMusicEventAppViewStore?
     ) throws -> Response {
-        guard let store else { return textResponse("Event \(claim.eventClaim) is temporarily unavailable.", status: .serviceUnavailable) }
+        guard let store else { return textResponse("Event is temporarily unavailable.", status: .serviceUnavailable) }
         let content: EventViewerContent
         do {
-            guard let indexed = try store.eventViewerContent(id: claim.eventID) else {
-                return textResponse("Event \(claim.eventClaim) is temporarily unavailable.", status: .serviceUnavailable)
+            guard let indexed = try store.eventViewerContent(id: eventID) else {
+                return textResponse("Event is temporarily unavailable.", status: .serviceUnavailable)
             }
             content = indexed
         } catch is ValidationError {

@@ -643,12 +643,12 @@ function renderEventDetail(container, summary) {
 }
 
 function eventViewerLink(event) {
-  const match = /^at:\/\/([^/]+)\/events\.openmusic\.event\/([^/]+)$/.exec(event.uri);
-  const hasViewer = (event.links || []).some(link => (
+  const viewer = (event.links || []).find(link => (
     link.source === "app.openmusicevent.eventViewer"
   ));
-  if (!match || !hasViewer) return "";
-  return `<a class="event-enter-button" href="/record/${encodeURIComponent(match[1])}/${encodeURIComponent(match[2])}">Enter Event</a>`;
+  if (!viewer) return "";
+  const url = new URL(viewer.uri, window.location.origin);
+  return `<a class="event-enter-button" href="${escapeAttribute(url.pathname + url.search + url.hash)}">Enter Event</a>`;
 }
 
 function sourceRecordLink(event) {

@@ -429,7 +429,7 @@ import Testing
             detail.links.filter {
                 $0.source == "app.openmusicevent.eventViewer"
             }.map { "\($0.name ?? "")|\($0.uri.absoluteString)" },
-            ["Enter Event|https://localhost/record/did:plc:venue/3mrdbziccpcaz"]
+            ["Enter Event|https://localhost/events/did%3Aplc%3Avenue/3mrdbziccpcaz"]
         )
         let communityDetail = try #require(
             try rebuiltStore.calendarEvent(uri: community.uri, appViewHost: "localhost")

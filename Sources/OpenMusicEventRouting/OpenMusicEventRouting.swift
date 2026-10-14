@@ -14,22 +14,6 @@ public typealias OpenMusicEventQuery = Tagged<OpenMusicEventQueryTag, String>
 public typealias OpenMusicEventSiteAsset = Tagged<OpenMusicEventSiteAssetTag, String>
 public typealias OpenMusicEventWellKnownFile = Tagged<OpenMusicEventWellKnownFileTag, String>
 
-public struct BrandedEventRouteClaim: Equatable, Sendable {
-    public init(
-        host: String,
-        eventClaim: String,
-        eventID: Event.ID
-    ) {
-        self.host = host
-        self.eventClaim = eventClaim
-        self.eventID = eventID
-    }
-
-    public let host: String
-    public let eventClaim: String
-    public let eventID: Event.ID
-}
-
 public struct OpenMusicEventIncomingRequest: Equatable, Sendable {
     public var host: OpenMusicEventHost
     public var path: OpenMusicEventPath
@@ -49,16 +33,13 @@ public struct OpenMusicEventIncomingRequest: Equatable, Sendable {
 public struct OpenMusicEventRoutingConfiguration: Equatable, Sendable {
     public var appHost: OpenMusicEventHost
     public var handleHost: OpenMusicEventHost
-    public var brandedEventRouteClaims: [BrandedEventRouteClaim]
 
     public init(
         appHost: OpenMusicEventHost = OpenMusicEventHost(rawValue: "openmusicevent.app"),
-        handleHost: OpenMusicEventHost = OpenMusicEventHost(rawValue: "ome.social"),
-        brandedEventRouteClaims: [BrandedEventRouteClaim] = []
+        handleHost: OpenMusicEventHost = OpenMusicEventHost(rawValue: "ome.social")
     ) {
         self.appHost = appHost
         self.handleHost = handleHost
-        self.brandedEventRouteClaims = brandedEventRouteClaims
     }
 
     public static let production = Self()
@@ -66,7 +47,6 @@ public struct OpenMusicEventRoutingConfiguration: Equatable, Sendable {
 
 public enum OpenMusicEventRoute: Equatable, Sendable {
     case appleAppSiteAssociation
-    case brandedEvent(BrandedEventRouteClaim)
     case health
     case ready
     case site(OpenMusicEventSiteRoute)
@@ -135,9 +115,6 @@ public struct OpenMusicEventPathRouter: Sendable {
         case .appleAppSiteAssociation:
             return "/apple-app-site-association"
 
-        case let .brandedEvent(claim):
-            return "/events/\(claim.eventClaim.encodedPathSegment)"
-
         case .health:
             return "/healthz"
 
@@ -183,10 +160,21 @@ public let openMusicEventPathRouter = OpenMusicEventPathRouter()
 public struct OpenMusicEventEventPathRouter: Sendable {
     public init() {}
 
+    public func parse(_ path: String) -> (eventID: Event.ID, tail: [String])? {
+        let segments = path.split(separator: "/").map(String.init)
+        guard segments.count >= 3, segments[0] == "events",
+              let repository = segments[1].removingPercentEncoding,
+              let recordKey = segments[2].removingPercentEncoding,
+              !repository.contains("/"), !recordKey.contains("/"),
+              let eventID = Event.ID("at://\(repository)/\(Event.lexiconID.rawValue)/\(recordKey)"),
+              case .did = eventID.authority else { return nil }
+        return (eventID, Array(segments.dropFirst(3)))
+    }
+
     public func path(for eventID: Event.ID) -> String {
         let repository = eventID.authority.description.encodedPathSegment
         let recordKey = (eventID.rkey?.rawValue ?? "").encodedPathSegment
-        return "/records/\(repository)/\(recordKey)"
+        return "/events/\(repository)/\(recordKey)"
     }
 
     public func communicationChannelPath(
@@ -220,17 +208,7 @@ public struct OpenMusicEventRouter: Sendable {
             return route
         }
 
-        let components = path.pathComponents
-        guard components.count == 2, components[0] == "events" else {
-            return nil
-        }
-        let host = request.host.rawValue.lowercased()
-        guard let claim = configuration.brandedEventRouteClaims.first(where: {
-            $0.host.lowercased() == host && $0.eventClaim == components[1]
-        }) else {
-            return nil
-        }
-        return .brandedEvent(claim)
+        return nil
     }
 
     public func path(for route: OpenMusicEventRoute) -> String {
@@ -246,8 +224,6 @@ public struct OpenMusicEventRouter: Sendable {
         components.scheme = scheme
         if let host {
             components.host = host.rawValue
-        } else if case let .brandedEvent(claim) = route {
-            components.host = claim.host
         } else {
             components.host = configuration.appHost.rawValue
         }

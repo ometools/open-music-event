@@ -106,7 +106,6 @@ public struct OpenMusicEventAppRoot {
 
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.applicationIconBadgeClient) var applicationIconBadgeClient
-    @Dependency(\.brandedEventRouteClaims) var brandedEventRouteClaims
     @Dependency(\.notificationsClient) var notificationsClient
     @Dependency(\.eventRecords) var eventRecords
     @Dependency(\.uuid) var uuid
@@ -244,10 +243,7 @@ public struct OpenMusicEventAppRoot {
                     }
 
                 case .openURL(let url):
-                    if let route = AppRoute(
-                        url: url,
-                        brandedClaims: brandedEventRouteClaims
-                    ) {
+                    if let route = AppRoute(url: url) {
                         store.addTask {
                             await Task.yield()
                             let task = try store.send(.openRoute(route))

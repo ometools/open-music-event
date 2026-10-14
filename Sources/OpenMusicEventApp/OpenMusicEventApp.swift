@@ -97,14 +97,11 @@ enum APNSEnvironmentConfiguration {
 
 public struct OpenMusicEventWhiteLabelAppVariant: Equatable, Sendable {
     public struct Environment: Equatable, Sendable {
-        public var brandedEventRouteClaims: [BrandedEventRouteClaim]
         public var configuration: WhiteLabelAppConfiguration
 
         public init(
-            configuration: WhiteLabelAppConfiguration,
-            brandedEventRouteClaims: [BrandedEventRouteClaim] = []
+            configuration: WhiteLabelAppConfiguration
         ) {
-            self.brandedEventRouteClaims = brandedEventRouteClaims
             self.configuration = configuration
         }
     }
@@ -188,12 +185,6 @@ extension OpenMusicEventAppVariant {
         }
     }
 
-    func brandedEventRouteClaims(
-        for environment: OpenMusicEventServiceEnvironment
-    ) -> [BrandedEventRouteClaim]? {
-        guard case let .whiteLabelEnvironments(variant) = self else { return nil }
-        return variant.configuration(for: environment).brandedEventRouteClaims
-    }
 }
 
 public enum OpenMusicEventAppDependencyProfile: Sendable {
@@ -636,9 +627,6 @@ struct OpenMusicEventApplicationRuntime {
             }
             let appConfiguration = variant.appConfiguration
             $0.openMusicEventAppConfiguration = appConfiguration
-            if let brandedEventRouteClaims = variant.brandedEventRouteClaims(for: environment) {
-                $0.brandedEventRouteClaims = brandedEventRouteClaims
-            }
             $0.deviceSupportsCriticalAlerts = appConfiguration.supportsCriticalAlerts
         } operation: {
             @Dependency(\.notificationsClient) var notificationsClient

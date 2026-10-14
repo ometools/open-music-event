@@ -142,18 +142,11 @@ struct AppViewRouteTests {
     }
 
     @Test
-    func `indexed canonical Event changes reach XRPC and the branded page`() async throws {
+    func `indexed canonical Event changes reach XRPC and the event page`() async throws {
         let roots = try TestAppViewRoots()
         defer { roots.remove() }
         let store = try OpenMusicEventAppViewStore(database: SQLiteData.defaultDatabase())
         var configuration = roots.configuration
-        configuration.brandedEventRouteClaims = [
-            BrandedEventRouteClaim(
-                host: "localhost",
-                eventClaim: "2026",
-                eventID: wickedWoodsCanonicalEventID
-            )
-        ]
         let app = try OpenMusicEventAppViewServer.application(
             configuration: configuration,
             store: store
@@ -169,8 +162,8 @@ struct AppViewRouteTests {
             try await client.execute(uri: eventRequest, method: .get) { response in
                 #expect(response.status == .notFound)
             }
-            try await client.execute(uri: "/events/2026", method: .get) { response in
-                #expect(response.status == .serviceUnavailable)
+            try await client.execute(uri: "/events/did%3Aplc%3A5df2u7ief6m6tn77jznicxob/3mrdbziccpcah", method: .get) { response in
+                #expect(response.status == .notFound)
             }
 
             var first = try Event(
@@ -192,7 +185,7 @@ struct AppViewRouteTests {
                 )
                 expectNoDifference(try indexed.event(), published)
             }
-            try await client.execute(uri: "/events/2026", method: .get) { response in
+            try await client.execute(uri: "/events/did%3Aplc%3A5df2u7ief6m6tn77jznicxob/3mrdbziccpcah", method: .get) { response in
                 #expect(response.status == .ok)
                 #expect(String(buffer: response.body).contains("<h1>Wicked Woods 2026</h1>"))
             }
@@ -210,7 +203,7 @@ struct AppViewRouteTests {
                 )
                 expectNoDifference(try indexed.event().name, revised.name)
             }
-            try await client.execute(uri: "/events/2026", method: .get) { response in
+            try await client.execute(uri: "/events/did%3Aplc%3A5df2u7ief6m6tn77jznicxob/3mrdbziccpcah", method: .get) { response in
                 #expect(String(buffer: response.body).contains(
                     "<h1>Wicked Woods 2026 — Updated</h1>"
                 ))
@@ -222,8 +215,8 @@ struct AppViewRouteTests {
             try await client.execute(uri: eventRequest, method: .get) { response in
                 #expect(response.status == .notFound)
             }
-            try await client.execute(uri: "/events/2026", method: .get) { response in
-                #expect(response.status == .serviceUnavailable)
+            try await client.execute(uri: "/events/did%3Aplc%3A5df2u7ief6m6tn77jznicxob/3mrdbziccpcah", method: .get) { response in
+                #expect(response.status == .notFound)
             }
         }
     }
@@ -271,7 +264,7 @@ struct AppViewRouteTests {
     }
 
     @Test
-    func `serves a branded attendee URL from its durable event`() async throws {
+    func `serves a canonical attendee URL from its durable event`() async throws {
         let roots = try TestAppViewRoots()
         defer { roots.remove() }
         let store = try OpenMusicEventAppViewStore(database: SQLiteData.defaultDatabase())
@@ -290,13 +283,6 @@ struct AppViewRouteTests {
             try Event.insert { publishedEvent }.execute(db)
         }
         var configuration = roots.configuration
-        configuration.brandedEventRouteClaims = [
-            BrandedEventRouteClaim(
-                host: "localhost",
-                eventClaim: "2026",
-                eventID: wickedWoodsCanonicalEventID
-            )
-        ]
         let app = try OpenMusicEventAppViewServer.application(
             configuration: configuration,
             store: store
@@ -304,7 +290,7 @@ struct AppViewRouteTests {
 
         try await app.test(.router) { client in
             try await client.execute(
-                uri: "/events/2026",
+                uri: "/events/did%3Aplc%3A5df2u7ief6m6tn77jznicxob/3mrdbziccpcah",
                 method: .get
             ) { response in
                 #expect(response.status == .ok)
@@ -312,7 +298,7 @@ struct AppViewRouteTests {
                 let html = String(buffer: response.body)
                 #expect(html.contains("<h1>Wicked Woods 2026</h1>"))
                 #expect(html.contains(
-                    "https://localhost/events/2026"
+                    "https://localhost/events/did%3Aplc%3A5df2u7ief6m6tn77jznicxob/3mrdbziccpcah"
                 ))
                 #expect(html.contains(
                     "https://resources.openmusicevent.app/wickedwoods/2026_ww_hero.png"
@@ -322,17 +308,10 @@ struct AppViewRouteTests {
     }
 
     @Test
-    func `rejects an unknown event claim before catalog lookup`() async throws {
+    func `rejects unsupported slug routes`() async throws {
         let roots = try TestAppViewRoots()
         defer { roots.remove() }
         var configuration = roots.configuration
-        configuration.brandedEventRouteClaims = [
-            BrandedEventRouteClaim(
-                host: "localhost",
-                eventClaim: "2026",
-                eventID: wickedWoodsCanonicalEventID
-            )
-        ]
         let app = try OpenMusicEventAppViewServer.application(configuration: configuration)
 
         try await app.test(.router) { client in
@@ -343,67 +322,6 @@ struct AppViewRouteTests {
                 #expect(response.status == .notFound)
             }
         }
-    }
-
-    @Test
-    func `reports a configured branded event as unavailable when its projection is missing`() async throws {
-        let roots = try TestAppViewRoots()
-        defer { roots.remove() }
-        var configuration = roots.configuration
-        configuration.brandedEventRouteClaims = [
-            BrandedEventRouteClaim(
-                host: "localhost",
-                eventClaim: "2030",
-                eventID: Event.ID(
-                    "at://did:plc:5df2u7ief6m6tn77jznicxob/events.openmusic.event/3mrdbziccpcam"
-                )!
-            )
-        ]
-        let app = try OpenMusicEventAppViewServer.application(configuration: configuration)
-
-        try await app.test(.router) { client in
-            try await client.execute(
-                uri: "/events/2030",
-                method: .get
-            ) { response in
-                #expect(response.status == .serviceUnavailable)
-                expectNoDifference(
-                    String(buffer: response.body),
-                    "Event 2030 is temporarily unavailable."
-                )
-            }
-        }
-    }
-
-    @Test
-    func `loads branded route claims from public AppView configuration`() throws {
-        let roots = try TestAppViewRoots()
-        defer { roots.remove() }
-        let configurationURL = roots.root.appendingPathComponent("branded-routes.json")
-        try Data(
-            #"""
-            {
-              "claims": [
-                {
-                  "host": "WickedWoods.OpenMusicEvent.App",
-                  "eventClaim": "2026",
-                  "eventURI": "at://did:plc:5df2u7ief6m6tn77jznicxob/events.openmusic.event/3mrdbziccpcah"
-                }
-              ]
-            }
-            """#.utf8
-        ).write(to: configurationURL)
-
-        let configuration = try AppViewConfiguration.fromEnvironment(
-            environment: [
-                "OME_BRANDED_EVENT_ROUTE_CONFIGURATION_PATH": configurationURL.path
-            ]
-        )
-        let claim = try #require(configuration.brandedEventRouteClaims.first)
-
-        expectNoDifference(claim.host, "wickedwoods.openmusicevent.app")
-        expectNoDifference(claim.eventClaim, "2026")
-        expectNoDifference(claim.eventID, wickedWoodsCanonicalEventID)
     }
 
     @Test

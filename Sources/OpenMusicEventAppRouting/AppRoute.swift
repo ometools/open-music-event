@@ -4,8 +4,6 @@ import OpenMusicEventLexicon
 import OpenMusicEventRouting
 import OpenMusicEventViewers
 
-public typealias BrandedEventRouteClaim = OpenMusicEventRouting.BrandedEventRouteClaim
-
 public enum AppRoute: Equatable, NotificationRoute, Sendable {
     case event(Event.ID, EventTarget?)
 
@@ -20,43 +18,15 @@ public enum AppRoute: Equatable, NotificationRoute, Sendable {
     }
 
     public init?(url: URL) {
-        self.init(url: url, brandedClaims: [])
-    }
-
-    public init?(
-        url: URL,
-        brandedClaims: [BrandedEventRouteClaim]
-    ) {
-        let segments = url.path(percentEncoded: true).split(separator: "/").map(String.init)
-        if segments.count >= 3,
-           segments[0] == "records",
-           let eventID = Event.ID(
-               "at://\(segments[1].decodedPathSegment)/\(Event.lexiconID.rawValue)/\(segments[2].decodedPathSegment)"
-           ),
-           case .did = eventID.authority {
+        if let route = openMusicEventEventPathRouter.parse(url.path(percentEncoded: true)) {
             self.init(
-                eventID: eventID,
-                tail: Array(segments.dropFirst(3))
+                eventID: route.eventID,
+                tail: route.tail
             )
             return
         }
 
-        guard
-            url.scheme?.lowercased() == "https",
-            url.port == nil || url.port == 443,
-            let host = url.host?.lowercased(),
-            segments.count >= 2,
-            segments[0] == "events",
-            let claim = brandedClaims.first(where: {
-                $0.host.lowercased() == host
-                    && $0.eventClaim == segments[1].decodedPathSegment
-            })
-        else { return nil }
-
-        self.init(
-            eventID: claim.eventID,
-            tail: Array(segments.dropFirst(2))
-        )
+        return nil
     }
 
     private init?(eventID: Event.ID, tail: [String]) {
