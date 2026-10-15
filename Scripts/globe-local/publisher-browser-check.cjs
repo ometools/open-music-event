@@ -57,6 +57,13 @@ const publishers = [
     assert.equal(await page.locator('#publisherChoices input').first().getAttribute('data-publisher-id'), '2');
     await page.getByText('100 events', { exact: true }).waitFor();
     assert.equal(await page.getByRole('link', { name: 'Bluesky profile for Music Calendar' }).getAttribute('href'), 'https://bsky.app/profile/did%3Aplc%3Amusic');
+    assert.equal(await page.getByRole('link', { name: 'Calendar', exact: true }).count(), 0);
+    assert.equal(await page.getByRole('link', { name: 'About', exact: true }).getAttribute('href'), '/about');
+    assert.equal(await page.locator('.publisher-profile .publisher-identity').first().textContent(), 'Music Calendar@music.example');
+    await page.getByRole('button', { name: 'Only show events from Music Calendar' }).click();
+    assert.equal(await page.locator('#publisherMode').inputValue(), 'only');
+    assert.deepEqual(JSON.parse(await page.evaluate(() => localStorage.getItem('ome.publisherLens.v1'))), { mode: 'only', publishers: [2] });
+    await page.getByRole('button', { name: 'Reset to OME defaults' }).click();
     await page.locator('#publisherSearch').fill('music.example');
     await page.waitForResponse(response => response.url().includes('getPublishers') && response.url().includes('music.example'));
     assert.equal(await page.getByRole('checkbox', { name: 'Include Music Calendar' }).count(), 1);

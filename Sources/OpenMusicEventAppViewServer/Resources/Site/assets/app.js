@@ -1585,7 +1585,13 @@ function renderPublisherChoices() {
   els.publisherChoices.replaceChildren();
   for (const id of ids) {
     const publisher = state.publishers.get(id);
-    const label = document.createElement("label");
+    const label = document.createElement(publisher?.did ? "a" : "span");
+    label.className = "publisher-profile";
+    if (publisher?.did) {
+      label.href = `https://bsky.app/profile/${encodeURIComponent(publisher.did)}`;
+      label.target = "_blank";
+      label.rel = "noopener noreferrer";
+    }
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.dataset.publisherId = String(id);
@@ -1593,7 +1599,8 @@ function renderPublisherChoices() {
     const text = document.createElement("span");
     text.className = "publisher-identity";
     const name = document.createElement("span");
-    name.textContent = publisher?.label || publisher?.handle || publisher?.did || `Publisher ${id}`;
+    name.textContent = publisher?.label || publisher?.handle || `Publisher ${id}`;
+    if (publisher?.did) label.setAttribute("aria-label", `Bluesky profile for ${name.textContent}`);
     text.append(name);
     if (publisher?.handle) {
       const handle = document.createElement("small");
@@ -1607,7 +1614,6 @@ function renderPublisherChoices() {
       if (listed) next.add(id); else next.delete(id);
       applyPublisherLens({ mode: state.publisherLens.mode, publishers: [...next] });
     });
-    label.append(checkbox);
     if (publisher?.avatarURL) {
       const avatarURL = new URL(publisher.avatarURL, window.location.href);
       if (avatarURL.protocol === "https:" && avatarURL.hostname === "cdn.bsky.app") {
@@ -1625,22 +1631,20 @@ function renderPublisherChoices() {
     label.append(text);
     const row = document.createElement("div");
     row.className = "publisher-row";
-    row.append(label);
+    row.append(checkbox, label);
     if (Number.isSafeInteger(publisher?.eventCount)) {
       const count = document.createElement("small");
       count.textContent = `${publisher.eventCount.toLocaleString()} events`;
       count.title = "Total indexed Community Calendar events, across all dates and locations";
-      row.append(count);
+      label.append(count);
     }
-    if (publisher?.handle) {
-      const profile = document.createElement("a");
-      profile.href = `https://bsky.app/profile/${encodeURIComponent(publisher.did)}`;
-      profile.textContent = "Profile";
-      profile.setAttribute("aria-label", `Bluesky profile for ${name.textContent}`);
-      profile.target = "_blank";
-      profile.rel = "noopener noreferrer";
-      row.append(profile);
-    }
+    const only = document.createElement("button");
+    only.type = "button";
+    only.textContent = "Only";
+    only.setAttribute("aria-label", `Only show events from ${name.textContent}`);
+    only.setAttribute("aria-pressed", String(lens.mode === "only" && lens.publishers.length === 1 && lens.publishers[0] === id));
+    only.addEventListener("click", () => applyPublisherLens({ mode: "only", publishers: [id] }));
+    row.append(only);
     els.publisherChoices.append(row);
   }
   els.morePublishers.hidden = state.publisherCursor === null;
