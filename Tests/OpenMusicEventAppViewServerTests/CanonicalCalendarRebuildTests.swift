@@ -71,9 +71,18 @@ struct CanonicalCalendarRebuildTests {
         }
         expectNoDifference(try db.read { try CalendarMapEvent.all.fetchCount($0) }, 1)
         #expect(try db.read { try CalendarEventBrowseSearch.all.fetchOne($0)?.searchText.contains("Updated") } == true)
+
+        // Rejected inputs are allowed; an invalid projected row still blocks serving.
+        try db.write {
+            try Event.find(uri).update { $0.name = "" }.execute($0)
+        }
+        let invalidReport = try store.finishCanonicalCalendarValidation { _ in }
+        #expect(!invalidReport.passed)
+        expectNoDifference(invalidReport.invalid, 1)
+        #expect(throws: (any Error).self) { try OpenMusicEventAppViewStore(database: db) }
     }
 
-    @Test func failedSourceIsAccountedForAndCannotBeServed() throws {
+    @Test func rejectedSourceIsAccountedForWithoutBlockingServing() throws {
         let db = try DatabaseQueue()
         let store = try OpenMusicEventAppViewStore(database: db)
         try db.write {
@@ -84,10 +93,12 @@ struct CanonicalCalendarRebuildTests {
                     "community.lexicon.calendar.event", "bafy-bad", Data(#"{"name":"No creation date"}"#.utf8)])
         }
         let report = try store.rebuildCanonicalCalendar(now: Date(timeIntervalSince1970: 0)) { _ in }
-        #expect(!report.passed)
+        #expect(report.passed)
         expectNoDifference(report.failed, 1)
         expectNoDifference(report.pending, 0)
-        #expect(throws: (any Error).self) { try OpenMusicEventAppViewStore(database: db) }
+        _ = try OpenMusicEventAppViewStore(database: db)
+        expectNoDifference(try db.read { try Event.all.fetchCount($0) }, 0)
+        expectNoDifference(try db.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM appViewIndexedRecords") }, 1)
     }
 
     @Test func interruptedBuildCannotBeServed() throws {

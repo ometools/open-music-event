@@ -2,6 +2,19 @@ import Foundation
 import OpenMusicEventAppViewServer
 
 switch try AppViewCommand(arguments: Array(CommandLine.arguments.dropFirst())) {
+case let .validateCanonicalCalendar(path):
+    do {
+        let report = try OpenMusicEventAppViewServer.validateCanonicalCalendar(
+            databaseURL: URL(fileURLWithPath: path)
+        ) { message in
+            try FileHandle.standardOutput.write(contentsOf: Data((message + "\n").utf8))
+        }
+        guard report.passed else { exit(EXIT_FAILURE) }
+    } catch {
+        try FileHandle.standardError.write(contentsOf: Data("Validation failed: \(error)\n".utf8))
+        exit(EXIT_FAILURE)
+    }
+
 case let .rebuildCanonicalCalendar(source, destination):
     let started = Date()
     do {
@@ -78,6 +91,7 @@ case .help:
 }
 
 private enum AppViewCommand: Equatable {
+    case validateCanonicalCalendar(String)
     case rebuildCanonicalCalendar(source: String, destination: String)
     case serve
     case setTangledWebhookSecret(watchID: String, secretFile: String?)
@@ -86,6 +100,7 @@ private enum AppViewCommand: Equatable {
 
     static let usage = """
         USAGE: OpenMusicEventAppView [serve]
+               OpenMusicEventAppView validate-canonical-calendar --database <candidate-path>
                OpenMusicEventAppView rebuild-canonical-calendar --from-backup <path> --output <new-path>
                OpenMusicEventAppView set-tangled-webhook-secret --watch-id <watch-id> [--secret-file <path>]
                OpenMusicEventAppView backfill-source-artifacts
@@ -97,6 +112,12 @@ private enum AppViewCommand: Equatable {
             return
         }
         switch command {
+        case "validate-canonical-calendar":
+            guard arguments.count == 3, arguments[1] == "--database" else {
+                throw AppViewCommandError.unexpectedArguments(Array(arguments.dropFirst()))
+            }
+            self = .validateCanonicalCalendar(arguments[2])
+
         case "rebuild-canonical-calendar":
             guard arguments.count == 5, arguments[1] == "--from-backup", arguments[3] == "--output" else {
                 throw AppViewCommandError.unexpectedArguments(Array(arguments.dropFirst()))

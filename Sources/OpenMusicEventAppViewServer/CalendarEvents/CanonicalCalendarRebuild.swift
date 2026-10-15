@@ -27,9 +27,9 @@ public struct CanonicalCalendarRebuildReport: Sendable, CustomStringConvertible 
     public var invalid: Int
     public var pending: Int
     public var plotted: Int
-    public var passed: Bool { failed == 0 && invalid == 0 && pending == 0 }
+    public var passed: Bool { invalid == 0 && pending == 0 }
     public var description: String {
-        "\(passed ? "PASSED" : "COMPLETED WITH ERRORS"): projected=\(projected), failed=\(failed), deleted=\(deleted), invalid=\(invalid), pending=\(pending), plotted=\(plotted)"
+        "\(passed ? "PASSED" : "COMPLETED WITH ERRORS"): projected=\(projected), rejected=\(failed), deleted=\(deleted), invalid=\(invalid), pending=\(pending), plotted=\(plotted)"
     }
 }
 
@@ -109,6 +109,22 @@ extension OpenMusicEventAppViewStore {
 }
 
 extension OpenMusicEventAppViewServer {
+    public static func validateCanonicalCalendar(
+        databaseURL: URL, progress: (String) throws -> Void
+    ) throws -> CanonicalCalendarRebuildReport {
+        guard FileManager.default.fileExists(atPath: databaseURL.path) else {
+            throw CanonicalCalendarRebuildError.incomplete("candidate does not exist")
+        }
+        let store = try OpenMusicEventAppViewStore(rebuilding: DatabaseQueue(path: databaseURL.path))
+        let phase = try store.database.read { try CanonicalCalendarRebuildState.find(0).fetchOne($0)?.phase }
+        guard let phase, ["validating", "failed", "passed"].contains(phase) else {
+            throw CanonicalCalendarRebuildError.incomplete(phase ?? "no rebuild")
+        }
+        let report = try store.finishCanonicalCalendarValidation(progress: progress)
+        try progress(report.description)
+        return report
+    }
+
     public static func rebuildCanonicalCalendar(
         fromBackup sourceURL: URL, destination: URL, now: Date = .now,
         progress: (String) throws -> Void
