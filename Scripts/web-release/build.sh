@@ -20,7 +20,7 @@ import json, sys
 dependencies = json.load(open(sys.argv[1]))["dependencies"]
 paths = [entry["path"] for dependency in dependencies for entry in dependency.get("fileSystem", [])]
 if paths:
-    raise SystemExit("Publish the web dependencies before CI can build:\n" + "\n".join(paths))
+    raise SystemExit("The web graph still uses local package paths; select published remote references before CI can build:\n" + "\n".join(paths))
 PY
 
 swift test --force-resolved-versions --no-parallel --xunit-output "$output/tests.xml"

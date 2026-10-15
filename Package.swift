@@ -158,6 +158,8 @@ let composableAtmosphereDependency: Package.Dependency = .package(
 let atprotoDependency = atmosphereFamilyDependency("swift-atproto")
 let atprotoOAuthDependency = atmosphereFamilyDependency("swift-atproto-oauth")
 let atprotoSQLiteDependency = atmosphereFamilyDependency("swift-atproto-sqlite")
+let atprotoSQLitePackageName = packageBuild == .appView
+    ? "swift-atproto-sqlite-data" : "swift-atproto-sqlite"
 let atprotoServerDependency = atmosphereFamilyDependency("swift-atproto-server")
 let blueskyDependency = atmosphereFamilyDependency("swift-bluesky")
 let composableAtmosphereConstellationDependency: Package.Dependency = .package(
@@ -446,12 +448,23 @@ let appViewDependencies: [Package.Dependency] = [
     .package(url: "https://github.com/swift-server/swift-service-lifecycle", from: "2.6.0"),
 ] + (packageBuild == .appView ? [
     appViewComposableCalendarEventsDependency,
-    composableAtmosphereDependency,
-    atprotoDependency,
-    atprotoOAuthDependency,
-    atprotoSQLiteDependency,
-    atprotoServerDependency,
-    blueskyDependency,
+    .package(
+        url: "https://tangled.org/woody.fm/swift-atproto",
+        revision: "2e52bfee4e6d725680a1c1df629d7e7f78c86f32"
+    ),
+    .package(
+        url: "https://tangled.org/woody.fm/swift-atproto-oauth",
+        revision: "e14b6bcc39ffd59e1680ee8a6beedcc5d18aee8a",
+        traits: ["Sharing"]
+    ),
+    .package(
+        url: "https://tangled.org/woody.fm/swift-atproto-sqlite-data",
+        revision: "45360e139f3b1f6a127f0e4b839312f2f618fdc6"
+    ),
+    .package(
+        url: "https://tangled.org/woody.fm/swift-atproto-server",
+        revision: "afeb5a570cc45778e6172ffdec8e3d59a78664f8"
+    ),
     tca26Dependency,
     composableNotificationsDependency,
     swiftSharingDependency,
@@ -641,7 +654,7 @@ let openMusicEventLexiconTarget = Target.target(
         .product(name: "ATProto", package: "swift-atproto"),
         .product(name: "CasePaths", package: "swift-case-paths"),
         .product(name: "ATProtoTypes", package: "swift-atproto"),
-        .product(name: "ATProtoSQLite", package: "swift-atproto-sqlite"),
+        .product(name: "ATProtoSQLite", package: atprotoSQLitePackageName),
         .product(name: "SQLiteData", package: "sqlite-data"),
         .product(name: "StructuredQueriesSQLite", package: "swift-structured-queries"),
         .product(name: "Tagged", package: "swift-tagged"),
@@ -941,7 +954,7 @@ var openMusicEventAppDependencies: [Target.Dependency] = [
     .product(name: "SkipFuseUI", package: "skip-fuse-ui"),
     .product(name: "SQLiteData", package: "sqlite-data"),
     .product(name: "ATProto", package: "swift-atproto"),
-    .product(name: "ATProtoSQLite", package: "swift-atproto-sqlite"),
+    .product(name: "ATProtoSQLite", package: atprotoSQLitePackageName),
 ]
 
 // The Android app target names SkipKit directly so the host-side Gradle
@@ -1000,7 +1013,7 @@ applicationTargets.append(contentsOf: [
             "SourceEditing",
             "SwiftUITabFeatures",
             .product(name: "ATProto", package: "swift-atproto"),
-            .product(name: "ATProtoSQLite", package: "swift-atproto-sqlite"),
+            .product(name: "ATProtoSQLite", package: atprotoSQLitePackageName),
             .product(name: "ATProtoTypes", package: "swift-atproto"),
             .product(name: "ATProtoOAuth", package: "swift-atproto-oauth"),
             .product(name: "ComposableArchitecture2", package: "TCA26"),
@@ -1261,7 +1274,7 @@ let appViewTargets: [Target] = [
             .product(name: "HTTPTypes", package: "swift-http-types"),
             .product(name: "ATProtoStreams", package: "swift-atproto-server"),
             .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
-            .product(name: "ATProtoSQLite", package: "swift-atproto-sqlite"),
+            .product(name: "ATProtoSQLite", package: atprotoSQLitePackageName),
             .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
             .product(name: "SQLiteData", package: "sqlite-data"),
             .product(name: "Tagged", package: "swift-tagged"),
