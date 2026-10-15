@@ -447,7 +447,10 @@ let appViewDependencies: [Package.Dependency] = [
     .package(url: "https://github.com/hummingbird-project/hummingbird-lambda.git", from: "2.1.0"),
     .package(url: "https://github.com/swift-server/swift-service-lifecycle", from: "2.6.0"),
 ] + (packageBuild == .appView ? [
-    appViewComposableCalendarEventsDependency,
+    .package(
+        url: "https://tangled.org/woody.fm/composable-calendar-events",
+        revision: "26abe35394d9a282874e359397db14a17c3949c4"
+    ),
     .package(
         url: "https://tangled.org/woody.fm/swift-atproto",
         branch: "main"
@@ -466,11 +469,23 @@ let appViewDependencies: [Package.Dependency] = [
         revision: "afeb5a570cc45778e6172ffdec8e3d59a78664f8"
     ),
     tca26Dependency,
-    composableNotificationsDependency,
+    .package(
+        url: "https://tangled.org/woody.fm/swift-composable-notifications",
+        revision: "2dd5d9118f573e60ca0329d9d81374e1f2fbfdea"
+    ),
     swiftSharingDependency,
-    composableAtmosphereConstellationDependency,
-    composableAtmosphereTangledDependency,
-    composableWorkspaceDependency,
+    .package(
+        url: "https://tangled.org/woody.fm/composable-atmosphere-constellation",
+        revision: "8f0bf2d43345e3f0c3daf04360139e75fa0b3a55"
+    ),
+    .package(
+        url: "https://tangled.org/woody.fm/composable-atmosphere-tangled",
+        revision: "24129652aa634caa4b7282f24fd0ef9340439cfc"
+    ),
+    .package(
+        url: "https://tangled.org/woody.fm/swift-composable-workspace",
+        revision: "180603a676823d7ef18dc46b4e1e377426b42dde"
+    ),
     sourceControlDependency,
     .package(url: "https://github.com/apple/swift-crypto", from: "4.0.0"),
     .package(url: "https://github.com/pointfreeco/combine-schedulers", exact: "1.2.0"),

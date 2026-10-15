@@ -23,7 +23,7 @@ if paths:
     raise SystemExit("The web graph still uses local package paths; select published remote references before CI can build:\n" + "\n".join(paths))
 PY
 
-swift test --force-resolved-versions --no-parallel --xunit-output "$output/tests.xml"
+swift test --scratch-path .build/web-tests --jobs 4 --force-resolved-versions --no-parallel --xunit-output "$output/tests.xml"
 python3 - "$output/tests.xml" <<'PY'
 import sys, xml.etree.ElementTree as ET
 cases = list(ET.parse(sys.argv[1]).getroot().iter("testcase"))
@@ -32,9 +32,9 @@ if not cases or all(case.find("skipped") is not None for case in cases):
 if any(case.find("failure") is not None or case.find("error") is not None for case in cases):
     raise SystemExit("The web test report contains failures")
 PY
-swift build --force-resolved-versions -c release --product OpenMusicEventAppView
+swift build --scratch-path .build/web-release-build --jobs 4 --force-resolved-versions -c release --product OpenMusicEventAppView
 cmp Package.resolved "$output/Package.resolved.input"
-bin_dir="$(swift build --force-resolved-versions -c release --show-bin-path)"
+bin_dir="$(swift build --scratch-path .build/web-release-build --jobs 4 --force-resolved-versions -c release --show-bin-path)"
 python3 Scripts/web-release/artifact.py package \
   --bin-dir "$bin_dir" --lockfile Package.resolved \
   --revision "$OME_RELEASE_REVISION" --toolchain-image "$OME_TOOLCHAIN_IMAGE" \
