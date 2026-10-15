@@ -1,49 +1,17 @@
 when:
-  - event: ["push"]
-    branch: ["main"]
   - event: ["pull_request"]
     branch: ["main"]
 
 engine: microvm
 image: nixos
-
 virtualisation:
   docker: true
+dependencies:
+  - python3
+  - docker-buildx
 
 steps:
-  - name: "Build and test AppView"
-    command: |
-      set -eu
-
-      test -n "${GITHUB_TOKEN:-}" || {
-        echo "GITHUB_TOKEN is empty. Add it in Tangled repository Settings -> Secrets."
-        exit 1
-      }
-
-      docker run --rm \
-        --env GITHUB_TOKEN \
-        --volume "$PWD":/workdir \
-        --workdir /workdir \
-        swift:6.3-noble \
-        bash -lc '
-          set -euo pipefail
-          export GIT_TERMINAL_PROMPT=0
-          export DEBIAN_FRONTEND=noninteractive
-          export OME_APPVIEW=1
-
-          apt-get update
-          apt-get install -y --no-install-recommends libgit2-dev libsqlite3-dev pkg-config
-          rm -rf /var/lib/apt/lists/*
-          rm -rf .build "$HOME/.cache/org.swift.swiftpm" "$HOME/.swiftpm"
-
-          # Validate the committed dependency graph instead of selecting new transitive releases.
-
-          printf "machine github.com\nlogin x-access-token\npassword %s\n" "$GITHUB_TOKEN" > ~/.netrc
-          chmod 600 ~/.netrc
-
-          git config --global credential.helper store
-          printf "https://x-access-token:%s@github.com\n" "$GITHUB_TOKEN" > ~/.git-credentials
-
-          git clone --depth 1 https://github.com/pointfreeco/TCA26 .build/checkouts/TCA26
-          swift build && swift test --no-parallel
-        '
+  - name: Check web release tooling
+    command: python3 -m unittest discover -s Scripts/web-release -p 'test_*.py' -v
+  - name: Test and package web candidate
+    command: bash Scripts/web-release/ci.sh
