@@ -450,11 +450,11 @@ let appViewDependencies: [Package.Dependency] = [
     appViewComposableCalendarEventsDependency,
     .package(
         url: "https://tangled.org/woody.fm/swift-atproto",
-        revision: "2e52bfee4e6d725680a1c1df629d7e7f78c86f32"
+        branch: "main"
     ),
     .package(
         url: "https://tangled.org/woody.fm/swift-atproto-oauth",
-        revision: "e14b6bcc39ffd59e1680ee8a6beedcc5d18aee8a",
+        branch: "main",
         traits: ["Sharing"]
     ),
     .package(
