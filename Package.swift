@@ -462,7 +462,7 @@ let appViewDependencies: [Package.Dependency] = [
     ),
     .package(
         url: "https://tangled.org/woody.fm/swift-atproto-sqlite-data",
-        revision: "45360e139f3b1f6a127f0e4b839312f2f618fdc6"
+        revision: "0e27f050a898d6013c2b48e2e21d93670c75c23b"
     ),
     .package(
         url: "https://tangled.org/woody.fm/swift-atproto-server",
