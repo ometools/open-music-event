@@ -79,6 +79,14 @@ public enum OpenMusicEventAppViewServer {
                     )
                 )
             )
+            services.append(
+                WorkspaceProposalRenderService(
+                    processor: WorkspaceProposalRenderProcessor(
+                        configuration: tangledWebhook,
+                        store: store
+                    )
+                )
+            )
         }
 
         let notificationRegistration = try notificationRegistration

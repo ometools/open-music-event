@@ -340,6 +340,21 @@ extension OpenMusicEventAppViewStore {
     }
   }
 
+  func workspaceProposalRenderCandidates() async throws -> [TangledWorkspaceProposal] {
+    try await database.read { database in
+      try TangledWorkspaceProposalRow.all.fetchAll(database)
+        .map { try $0.proposal() }
+        .filter { proposal in
+          guard proposal.lifecycle == .open,
+            case .present = proposal.record
+          else {
+            return false
+          }
+          return true
+        }
+    }
+  }
+
   func prepareWorkspaceProposalRender(
     id: ATProto.URI,
     input: TangledWorkspaceProposal.RenderInput
