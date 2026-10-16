@@ -1,0 +1,5 @@
+# Native fixture views bridged into the transpiled Compose test target.
+skip:
+  mode: 'native'
+  bridging: true
+  package: 'fm.woody.swift.ui.tab.features.fixtures'

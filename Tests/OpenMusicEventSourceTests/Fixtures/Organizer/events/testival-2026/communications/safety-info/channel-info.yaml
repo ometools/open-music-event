@@ -1,0 +1,5 @@
+name: Safety Info
+description: Important safety information and emergency contacts.
+iconImageURL: https://example.com/safety.png
+sortIndex: 2
+firebaseTopicName: testival-2026-safety

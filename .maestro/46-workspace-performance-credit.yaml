@@ -1,0 +1,72 @@
+appId: ${APP_ID}
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible:
+      id: button.browse-event.3mrdbziccpcah
+    timeout: 30000
+- tapOn:
+    id: button.browse-event.3mrdbziccpcah
+- tapOn:
+    id: button.enter-event.3mrdbziccpcah
+- extendedWaitUntil:
+    visible:
+      id: view.schedule.at://did:web:example.com/events.openmusic.event/3mrdbziccpcah
+    timeout: 30000
+- tapOn: More
+- tapOn:
+    id: tab-feature.settings
+- tapOn: Enter Workspace
+- tapOn: More
+- extendedWaitUntil:
+    visible: Leave Workspace
+    timeout: 15000
+- runFlow: helpers/back.yaml
+- tapOn: Schedule
+- extendedWaitUntil:
+    visible:
+      id: view.schedule.at://did:web:example.com/events.openmusic.event/3mrdbziccpcah
+    timeout: 15000
+- tapOn:
+    id: menu.schedule-kind
+- tapOn: List
+- scrollUntilVisible:
+    element:
+      id: button.performance.at://did:web:example.com/events.openmusic.programItem/3mrdbziccpcrv
+    direction: DOWN
+    timeout: 20000
+- tapOn:
+    id: button.performance.at://did:web:example.com/events.openmusic.programItem/3mrdbziccpcrv
+- extendedWaitUntil:
+    visible:
+      id: view.performance-detail.at://did:web:example.com/events.openmusic.programItem/3mrdbziccpcrv
+    timeout: 15000
+- tapOn: Performance Actions
+- tapOn: Edit Performance
+- extendedWaitUntil:
+    visible: Edit Performance
+    timeout: 15000
+- scrollUntilVisible:
+    element:
+      id: button.credit-actions.0
+    direction: DOWN
+    timeout: 20000
+- tapOn:
+    id: button.credit-actions.0
+- assertVisible: Edit
+- assertVisible: Delete
+- tapOn: Edit
+- assertVisible: Credit Name
+- tapOn: Credit Name
+- eraseText
+- inputText: Artist One Renamed
+- tapOn: Done
+- tapOn: Save
+- extendedWaitUntil:
+    visible: Artist One Renamed
+    timeout: 15000
+- extendedWaitUntil:
+    visible:
+      id: view.performance-detail.at://did:web:example.com/events.openmusic.programItem/3mrdbziccpcrv
+    timeout: 15000

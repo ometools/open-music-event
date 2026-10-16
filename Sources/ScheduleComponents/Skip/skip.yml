@@ -1,0 +1,24 @@
+# Skip configuration for ScheduleComponents module.
+# Its direct SkipSwiftUI product dependency is declared in Package.swift.
+
+skip:
+  mode: 'native'
+
+build:
+  contents:
+    - block: 'android'
+      contents:
+        - 'compileSdk = libs.versions.android.sdk.compile.get().toInt()'
+        - block: 'defaultConfig'
+          contents:
+            - 'minSdk = libs.versions.android.sdk.min.get().toInt()'
+
+    - block: 'dependencies'
+      contents:
+        - 'api(project(":SkipSwiftUI"))'
+        - 'api(project(":SkipAndroidBridge"))'
+        - 'api(project(":SkipBridge"))'
+        - 'api(project(":SkipLib"))'
+        - 'api(project(":SkipFoundation"))'
+        - 'api(project(":SkipUI"))'
+        - 'api(project(":SkipModel"))'

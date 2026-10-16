@@ -1,0 +1,47 @@
+name: Web production
+'on':
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: Full 40-character main commit that passed staging
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: web-production
+  cancel-in-progress: false
+jobs:
+  promote:
+    name: Promote staged artifact
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: ${{ vars.OME_PRODUCTION_URL }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      OME_RELEASE_BUCKET: ${{ vars.OME_RELEASE_BUCKET }}
+      OME_PRODUCTION_SSH_HOST: ${{ vars.OME_PRODUCTION_SSH_HOST }}
+      OME_PRODUCTION_SSH_USER: ${{ vars.OME_PRODUCTION_SSH_USER }}
+      OME_PRODUCTION_SERVICE: ${{ vars.OME_PRODUCTION_SERVICE }}
+      OME_PRODUCTION_DATABASE: ${{ vars.OME_PRODUCTION_DATABASE }}
+      OME_PRODUCTION_URL: ${{ vars.OME_PRODUCTION_URL }}
+      OME_PRODUCTION_KNOWN_HOSTS: ${{ vars.OME_PRODUCTION_KNOWN_HOSTS }}
+      OME_PRODUCTION_SSH_KEY: ${{ secrets.OME_PRODUCTION_SSH_KEY }}
+      OME_PROMOTE_REVISION: ${{ inputs.revision }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Obtain short-lived AWS credentials
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a
+        with:
+          role-to-assume: ${{ vars.OME_AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Promote the artifact that passed staging
+        run: python3 Scripts/web-release/pipeline.py promote --revision "$OME_PROMOTE_REVISION"

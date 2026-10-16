@@ -1,0 +1,47 @@
+{
+  "defs" : {
+    "main" : {
+      "description" : "One organizer-defined festival day shared across an event's programs. Its date names the day attendees use, even when assigned items continue past midnight.",
+      "key" : "tid",
+      "record" : {
+        "nullable" : [
+          "title"
+        ],
+        "properties" : {
+          "createdAt" : {
+            "description" : "Client-declared timestamp when this schedule record was created.",
+            "format" : "datetime",
+            "type" : "string"
+          },
+          "date" : {
+            "description" : "The organizer-defined event-local date attendees use to name this festival day. Assigned items may begin after midnight on the following calendar date.",
+            "maxLength" : 10,
+            "minLength" : 10,
+            "type" : "string"
+          },
+          "event" : {
+            "description" : "The DID-based record URI of the events.openmusic.event containing this festival day.",
+            "format" : "at-uri",
+            "type" : "string"
+          },
+          "title" : {
+            "description" : "An optional attendee-facing title that overrides the date's weekday label.",
+            "maxGraphemes" : 500,
+            "maxLength" : 5000,
+            "minLength" : 1,
+            "type" : "string"
+          }
+        },
+        "required" : [
+          "event",
+          "date",
+          "createdAt"
+        ],
+        "type" : "object"
+      },
+      "type" : "record"
+    }
+  },
+  "id" : "events.openmusic.schedule",
+  "lexicon" : 1
+}

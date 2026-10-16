@@ -1,0 +1,84 @@
+{
+  "defs" : {
+    "main" : {
+      "description" : "An organizer-owned category for posts about one event, including its presentation and notification policy. Attendee subscription choices are separate from this public policy.",
+      "key" : "tid",
+      "record" : {
+        "nullable" : [
+          "description",
+          "media",
+          "pinnedPosts",
+          "defaultNotificationState",
+          "notificationsRequired"
+        ],
+        "properties" : {
+          "createdAt" : {
+            "description" : "Client-declared creation timestamp, preserved through category edits.",
+            "format" : "datetime",
+            "type" : "string"
+          },
+          "defaultNotificationState" : {
+            "description" : "The organizer's default subscription choice for attendees who have not made a choice. Omitted means unspecified.",
+            "knownValues" : [
+              "subscribed",
+              "unsubscribed"
+            ],
+            "type" : "string"
+          },
+          "description" : {
+            "description" : "The organizer's explanation of the posts that belong in this category.",
+            "maxGraphemes" : 3000,
+            "maxLength" : 30000,
+            "type" : "string"
+          },
+          "event" : {
+            "description" : "The DID-based events.openmusic.event record that owns this category.",
+            "format" : "at-uri",
+            "type" : "string"
+          },
+          "media" : {
+            "description" : "Ordered category media, including an icon or header image.",
+            "items" : {
+              "refs" : [
+                "events.openmusic.defs#image",
+                "events.openmusic.defs#mediaRecord",
+                "events.openmusic.defs#externalMedia"
+              ],
+              "type" : "union"
+            },
+            "type" : "array"
+          },
+          "name" : {
+            "description" : "The attendee-facing category name.",
+            "maxGraphemes" : 500,
+            "maxLength" : 5000,
+            "minLength" : 1,
+            "type" : "string"
+          },
+          "notificationsRequired" : {
+            "description" : "Whether this category requires subscription within the event experience. True implies subscribed and cannot be paired with an unsubscribed default. This policy does not grant notification delivery authority or override device permissions.",
+            "type" : "boolean"
+          },
+          "pinnedPosts" : {
+            "description" : "Posts the organizer has pinned in this category, in display order.",
+            "items" : {
+              "format" : "at-uri",
+              "type" : "string"
+            },
+            "minLength" : 1,
+            "type" : "array"
+          }
+        },
+        "required" : [
+          "event",
+          "name",
+          "createdAt"
+        ],
+        "type" : "object"
+      },
+      "type" : "record"
+    }
+  },
+  "id" : "social.ome.category",
+  "lexicon" : 1
+}

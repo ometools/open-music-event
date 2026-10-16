@@ -1,0 +1,46 @@
+{
+  "createdAt": "2026-10-10T12:00:00Z",
+  "venues": [
+    {
+      "slug": "wicked-woods",
+      "accountLabel": "wicked-woods",
+      "displayName": "Wicked Woods",
+      "description": "Wicked Woods music festival.",
+      "source": "org-source/wicked-woods/wicked-woods-ome",
+      "eventCount": 6
+    },
+    {
+      "slug": "shambhala",
+      "accountLabel": "shambhala",
+      "displayName": "Shambhala Music Festival",
+      "description": "Shambhala Music Festival.",
+      "source": "org-source/shambhala-ome",
+      "eventCount": 3
+    },
+    {
+      "slug": "pine-creek-lodge",
+      "accountLabel": "pine-creek-lodge",
+      "displayName": "Pine Creek Lodge",
+      "description": "Live music at Pine Creek Lodge.",
+      "source": "org-source/pine-creek-lodge-ome",
+      "eventCount": 87
+    },
+    {
+      "slug": "montana-folk-festival",
+      "accountLabel": "mt-folk-festival",
+      "displayName": "Montana Folk Festival",
+      "description": "Montana Folk Festival.",
+      "source": "org-source/montana-folk-festival-ome",
+      "eventCount": 1
+    },
+    {
+      "slug": "gallatin-labor-temple",
+      "accountLabel": "labor-temple",
+      "displayName": "Gallatin Labor Temple",
+      "description": "Live music and community events at the Gallatin Labor Temple.",
+      "source": "org-source/gallatin-labor-temple-ome",
+      "eventCount": 11,
+      "avatar": "Sources/OpenMusicEventAppViewServer/Resources/Site/assets/gallatin-labor-temple-logo.png"
+    }
+  ]
+}

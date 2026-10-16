@@ -1,0 +1,253 @@
+appId: ${APP_ID}
+---
+# Fastlane has already installed the UI-marked app and cleared its data. The
+# app prepares canonical Testival records before Browse appears.
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible:
+      id: button.browse-event.3mrdbziccpcah
+    timeout: 30000
+- assertVisible:
+    id: app.root
+- assertVisible: Happening Now
+- takeScreenshot: 10-browse
+
+# The attendee learns enough about Testival to decide to install it.
+- tapOn:
+    id: button.browse-event.3mrdbziccpcah
+- extendedWaitUntil:
+    visible:
+      id: view.event-browse-detail.3mrdbziccpcah
+    timeout: 15000
+- assertVisible: Testival 2026
+- waitForAnimationToEnd
+- takeScreenshot: 20-testival-detail
+
+# Entering the event opens Saturday on the first music stage.
+- tapOn:
+    id: button.enter-event.3mrdbziccpcah
+- extendedWaitUntil:
+    visible:
+      id: button.performance.at://did:web:example.com/events.openmusic.programItem/3mrdbziccpcrt
+    timeout: 30000
+- assertVisible:
+    id: view.schedule.at://did:web:example.com/events.openmusic.event/3mrdbziccpcah
+- assertVisible:
+    id: indicator.schedule-current-time
+- waitForAnimationToEnd
+- takeScreenshot: 30-testival-schedule
+
+# The current-time line belongs to the timeline renderer. Timing chips belong
+# to list rows, so exercise both renderers while the same frozen clock is live.
+- tapOn:
+    id: menu.schedule-kind
+- tapOn: List
+- extendedWaitUntil:
+    visible:
+      id: indicator.performance-timing.now-playing
+    timeout: 15000
+
+# List mode deliberately combines every stage. Seeing Canopy's next set beside
+# Meadow's live set proves that both stage schedules share the frozen clock.
+- assertVisible:
+    id: button.performance.at://did:web:example.com/events.openmusic.programItem/3mrdbziccpcru
+- assertVisible:
+    id: indicator.performance-timing.starts-in
+- waitForAnimationToEnd
+- takeScreenshot: 32-testival-live-status
+
+# Collaborative Set proves that a real performance detail can render multiple
+# credited contributors and their billing from canonical program records.
+- scrollUntilVisible:
+    element:
+      id: button.performance.at://did:web:example.com/events.openmusic.programItem/3mrdbziccpcrv
+    direction: DOWN
+    timeout: 20000
+- tapOn:
+    id: button.performance.at://did:web:example.com/events.openmusic.programItem/3mrdbziccpcrv
+- extendedWaitUntil:
+    visible:
+      id: view.performance-detail.at://did:web:example.com/events.openmusic.programItem/3mrdbziccpcrv
+    timeout: 15000
+- assertVisible: ".*Artist One.*"
+- assertVisible: ".*Artist Two.*"
+- assertVisible: ".*Meadow.*"
+- waitForAnimationToEnd
+- takeScreenshot: 40-collaborative-set-detail
+- runFlow: helpers/back.yaml
+
+# Sunday contains a different cross-stage program. List mode deliberately
+# exercises the second schedule renderer instead of only the timeline cards.
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn:
+          id: Saturday
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - tapOn: Saturday
+- tapOn: Sunday
+- extendedWaitUntil:
+    visible:
+      id: button.performance.at://did:web:example.com/events.openmusic.programItem/3mrdbziccpcry
+    timeout: 15000
+- tapOn:
+    id: menu.schedule-kind
+- tapOn: List
+- extendedWaitUntil:
+    visible:
+      id: button.performance.at://did:web:example.com/events.openmusic.programItem/3mrdbziccpcrz
+    timeout: 15000
+- assertVisible:
+    id: button.performance.at://did:web:example.com/events.openmusic.programItem/3mrdbziccpcry
+- waitForAnimationToEnd
+- takeScreenshot: 50-sunday-schedule
+
+# Workshop stages are a separate attendee schedule, as they are in the richer
+# organizer programs Testival represents.
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn:
+          id: Sunday
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - tapOn: Sunday
+- tapOn: Saturday
+- tapOn: Workshops
+- extendedWaitUntil:
+    visible:
+      id: button.performance.at://did:web:example.com/events.openmusic.programItem/3mrdbziccpcrx
+    timeout: 15000
+- assertVisible: Movement Workshop
+
+# Contributor navigation proves that one artist can appear across stages and
+# days, not merely as text embedded in a performance card.
+- tapOn: More
+- tapOn:
+    id: tab-feature.contributors
+- extendedWaitUntil:
+    visible:
+      id: view.contributors.at://did:web:example.com/events.openmusic.event/3mrdbziccpcah
+    timeout: 15000
+- tapOn:
+    id: button.contributor.at://did:web:example.com/events.openmusic.contributor/3mrdbziccpcaq
+- extendedWaitUntil:
+    visible:
+      id: view.contributor-detail.at://did:web:example.com/events.openmusic.contributor/3mrdbziccpcaq
+    timeout: 15000
+- assertVisible: Artist Two
+- waitForAnimationToEnd
+- takeScreenshot: 60-artist-two-detail
+- scrollUntilVisible:
+    element:
+      id: button.performance.at://did:web:example.com/events.openmusic.programItem/3mrdbziccpcrv
+    direction: DOWN
+    timeout: 20000
+- scrollUntilVisible:
+    element:
+      id: button.performance.at://did:web:example.com/events.openmusic.programItem/3mrdbziccpcry
+    direction: DOWN
+    timeout: 20000
+- runFlow: helpers/back.yaml
+
+# Overflow features remain reachable through More on compact iOS and Android.
+# Canopy's detail proves the stage lineup and stage-owned schedule are live.
+# Return from Contributors explicitly; reselecting More does not pop on Android.
+- runFlow: helpers/back.yaml
+- tapOn:
+    id: tab-feature.stages
+- extendedWaitUntil:
+    visible:
+      id: view.stages.at://did:web:example.com/events.openmusic.event/3mrdbziccpcah
+    timeout: 15000
+- tapOn:
+    id: button.stage.at://did:web:example.com/events.openmusic.eventPlace/3mrdbziccpcan
+- extendedWaitUntil:
+    visible:
+      id: view.stage-detail.at://did:web:example.com/events.openmusic.eventPlace/3mrdbziccpcan
+    timeout: 15000
+- assertVisible: Canopy
+- waitForAnimationToEnd
+- takeScreenshot: 70-canopy-detail
+- scrollUntilVisible:
+    element:
+      text: Artist Three
+    direction: DOWN
+    timeout: 20000
+- assertVisible: Artist Two
+- runFlow: helpers/back.yaml
+- runFlow: helpers/back.yaml
+
+# Switching styles proves the record-defined map catalog rather than merely
+# opening a placeholder screen.
+- tapOn:
+    id: tab-feature.siteMap
+- extendedWaitUntil:
+    visible:
+      id: view.site-map.at://did:web:example.com/events.openmusic.event/3mrdbziccpcah
+    timeout: 15000
+- tapOn:
+    id: site-map-style-switcher
+- tapOn: Safety
+# SwiftUI propagates the screen's accessibility identifier onto descendants,
+# so iOS observes the decoded-image marker by its accessibility label. Compose
+# preserves the marker's identifier on Android. Both signals are emitted only
+# after the selected image has decoded successfully.
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - extendedWaitUntil:
+          visible: Loaded Site Map
+          timeout: 15000
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - extendedWaitUntil:
+          visible:
+            id: image.site-map.safety
+          timeout: 15000
+- assertNotVisible: This site map could not be loaded.
+- takeScreenshot: 80-safety-map
+- runFlow: helpers/back.yaml
+
+# Communications finish the functional story without adding another visual
+# baseline: General has a pinned post, while Safety requires alerts.
+- tapOn: Comms
+- extendedWaitUntil:
+    visible:
+      id: view.communications.at://did:web:example.com/events.openmusic.event/3mrdbziccpcah
+    timeout: 15000
+- tapOn:
+    id: button.channel.at://did:web:example.com/social.ome.category/3mrdbziccpcah
+- extendedWaitUntil:
+    visible:
+      id: view.channel-detail.at://did:web:example.com/social.ome.category/3mrdbziccpcah
+    timeout: 15000
+- assertVisible: Welcome to Testival
+- tapOn:
+    id: button.communication-post.at://did:web:example.com/social.ome.post/3mrdbziccpcah
+- extendedWaitUntil:
+    visible:
+      id: view.communication-post.at://did:web:example.com/social.ome.post/3mrdbziccpcah
+    timeout: 15000
+- assertVisible: ".*Check the schedule.*"
+- assertVisible: Testival guide
+- runFlow: helpers/back.yaml
+- runFlow: helpers/back.yaml
+- tapOn:
+    id: button.channel.at://did:web:example.com/social.ome.category/3mrdbziccpcai
+- extendedWaitUntil:
+    visible:
+      id: view.channel-detail.at://did:web:example.com/social.ome.category/3mrdbziccpcai
+    timeout: 15000
+- assertVisible: ".*Notifications are required.*"

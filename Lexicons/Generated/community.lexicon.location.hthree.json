@@ -1,0 +1,26 @@
+{
+  "defs" : {
+    "main" : {
+      "description" : "A physical location in the form of a H3 encoded location.",
+      "nullable" : [
+        "name"
+      ],
+      "properties" : {
+        "name" : {
+          "description" : "The name of the location.",
+          "type" : "string"
+        },
+        "value" : {
+          "description" : "The h3 encoded location.",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "value"
+      ],
+      "type" : "object"
+    }
+  },
+  "id" : "community.lexicon.location.hthree",
+  "lexicon" : 1
+}

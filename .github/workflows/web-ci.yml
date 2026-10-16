@@ -1,0 +1,52 @@
+name: Web CI
+'on':
+  pull_request:
+    branches:
+      - main
+permissions:
+  contents: read
+concurrency:
+  group: web-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  tooling:
+    name: Web release tooling
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Check shell syntax
+        run: for script in Scripts/web-release/*.sh; do bash -n "$script"; done
+      - name: Test release and promotion rules
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 -m unittest discover -s Scripts/web-release -p 'test_*.py' -v
+  linux:
+    name: Web Linux checks
+    needs: tooling
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      OME_SWIFT_JOBS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Test Linux server, check lexicons, and smoke-test debug server
+        env:
+          OME_DEPENDENCY_TOKEN: ${{ secrets.OME_DEPENDENCY_TOKEN }}
+        run: bash Scripts/web-release/ci.sh pr
+      - name: Save test and phase diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: web-pr-reports-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 7
+          if-no-files-found: ignore
+          include-hidden-files: true
+          path: |
+            .build/web-pr-run.*/tests*.xml
+            .build/web-pr-run.*/phases.tsv
+            .build/web-pr-run.*/smoke.log

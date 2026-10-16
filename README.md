@@ -1,42 +1,251 @@
 # OpenMusicEvent
 
-This is a [Skip](https://skip.tools) dual-platform app project.
-It builds a native app for both iOS and Android.
+OpenMusicEvent is a native iOS and Android app for music-event calendars.
+It gives organizers and attendees a structured view of events, stages, schedules,
+performances, contributors, locations, images, and event-specific details.
 
-## Building
+The app is built from one Swift codebase. The SwiftUI surface runs natively on
+iOS and is translated to Android with Skip. Event data is modeled in Swift,
+persisted locally, and can be imported from organizer-owned source repositories.
 
-This project is both a stand-alone Swift Package Manager module,
-as well as an Xcode project that builds and transpiles the project
-into a Kotlin Gradle project for Android using the Skip plugin.
+> [!WARNING]
+> OpenMusicEvent is under active development. The app is already useful for
+> modeling events, browsing schedules, validating source repositories, and
+> experimenting with source-backed editing, but the source format and app
+> workflows are still settling.
 
-Building the module requires that Skip be installed using
-[Homebrew](https://brew.sh) with `brew install skiptools/skip/skip`.
+## Current Capabilities
 
-This will also install the necessary transpiler prerequisites:
-Kotlin, Gradle, and the Android build tools.
+- Browse calendars and event rows with event artwork.
+- Open an event into dedicated views for info, schedules, stages, contributors,
+  posters, location, communications, notifications, and settings.
+- Edit event details, stages, calendars, policies, images, and source-backed
+  proposals from inside the app.
+- Import and validate OpenMusicEvent source repositories, including Tangled
+  repository references.
+- Authenticate with ATProto OAuth and use ATProto/Tangled infrastructure where
+  it belongs: identity, source ownership, source download, and source publishing.
 
-Installation prerequisites can be confirmed by running `skip checkup`.
+## Repo Layout
 
-## Testing
+- `Sources/OpenMusicEventApp` contains the app root, routing, settings, source
+  download flow, and shared app dependency setup.
+- `Sources/OpenMusicEventAppEventViewer` contains the event viewer feature:
+  event info, schedules, stages, contributors, editing flows, and source proposal
+  UI.
+- `Sources/OpenMusicEventLexicon` defines the core domain records:
+  `Organizer`, `Calendar`, `Event`, `Stage`, `Schedule`, `Performance`,
+  `Contributor`, posters, channels, images, policies, and supporting value types.
+- `Sources/OpenMusicEventSource` parses and validates source repository files
+  into the domain model.
+- `Sources/OpenMusicEventDatabase` owns the local database layer, image storage,
+  source provenance, and import insertion.
+- `Sources/SourceEditing` contains database comparison and patch primitives.
+- `Sources/OpenMusicEventSourceEditing` adapts those primitives to the generic
+  `ComposableWorkspace` lifecycle and Tangled publication boundary.
+- `Sources/OpenMusicEventAuthentication` wires ATProto OAuth into the app.
+- `Sources/OpenMusicEventCLI` exposes the `ome` command-line tools.
 
-The module can be tested using the standard `swift test` command
-or by running the test target for the macOS destination in Xcode,
-which will run the Swift tests as well as the transpiled
-Kotlin JUnit tests in the Robolectric Android simulation environment.
+Smaller modules such as `ScheduleComponents`, `OpenMusicEventImages`,
+`OpenMusicEventTimeZones`, and `SwiftUITabFeatures` keep shared UI and
+infrastructure code out of the main app target. Actor profile caching comes
+from the package family's `Bluesky` product.
 
-Parity testing can be performed with `skip test`,
-which will output a table of the test results for both platforms.
+## Authoring and Workspace Contract
+
+OME composes OAuth authorization, authoring policy, and one generic editable
+workspace around the Event Viewer. OAuth owns the signed-in session and network
+authorization. Authoring owns whether OME policy grants an editing capability.
+Workspace owns availability and one coherent mounted editing session. The Event
+Viewer owns editing, proposal-form progress, and presentation.
+
+There is exactly one writable application database: `defaultDatabase`. While a
+workspace is prepared, its `SourceWorkspaceResource` exposes that same writer as
+`main` and a stable, read-only reference database separately. Only Workspace
+descendants receive that coherent resource. They must never reopen the workspace,
+install another writer, or reconstruct a comparison reference independently.
+
+Browsing and authoring have a strict source-storage boundary. Browsing downloads
+a temporary source artifact, imports only the selected event into the persistent
+`defaultDatabase`, persists the event's organization source provenance, and then
+deletes the artifact. The provenance comes from the OME event projection; it is
+not an authoring resource manufactured by the browser. Browsing must not clone,
+open, fetch, or persist a Git repository, and it must not create a reference
+database. The current artifact happens to be a Tangled archive; a future AppView
+artifact replaces that transport without changing the lifecycle.
+
+Explicit authoring entry is the first Git boundary. After authentication and
+authorization succeed, Workspace takes ownership of the organization source. On
+first entry it clones the repository, resolves the exact checked-out Git commit,
+installs the complete organization source into `defaultDatabase`, replaces only
+rows owned by that exact source, builds the reference database from the same
+commit, and opens it as the stable comparison reader. The selected event remains
+viewer focus; it does not narrow or widen Workspace's organization-source ownership.
+
+Durable re-entry is deliberately different from first entry. While authoring
+state remains installed, a new application mount opens the existing repository
+and validates that its checked-out commit, installed revision, selected branch,
+and reference revision agree. The workspace model is availability plus a ready
+session containing the editable resource and one exact branch baseline. Working
+edits are simply the difference from that baseline. Selecting or refreshing a
+baseline is a task, not another durable mode; failure preserves the prior coherent
+session. Proposals are independent records and are never mounted into Workspace.
+
+Publication freezes the current database difference and formats a Git patch from
+a temporary local commit. OME uploads any required blobs and creates the Tangled
+proposal record directly; it does not create or push a proposal branch. Successful
+PDS record creation is the publication commit point. Before that point, failure
+stays in the proposal form and local editing remains available. After that point,
+OME dismisses the form and opens Proposals even if the AppView projection has not
+caught up. Publication always creates a new proposal. A checkpoint may
+idempotently finish that same creation after an interruption, but Workspace does
+not infer proposal lineage and cannot update a proposal.
+
+At the commit point OME saves a proposal receipt. The editable source, its working
+edits, and its baseline are unchanged. Receipts render pending proposals until the
+server-owned projection observes the exact record URI, then they are acknowledged.
+Merge and close operate on proposal records independently and do not silently
+change the workspace baseline. A future proposal-revision workflow must explicitly
+import a proposal patch and establish lineage before updates can exist.
+
+Losing an authoring grant cancels in-flight work but does not invalidate an
+already coherent ready session. After an application remount, Workspace
+reconstructs the resource through the durable validation path above.
+Proposal review diffs independently load the review's target repository and
+branch and its source repository and branch. They never substitute the workspace
+workspace branch or its already-advanced reference database for either side.
 
 ## Running
 
-Xcode and Android Studio must be downloaded and installed in order to
-run the app in the iOS simulator / Android emulator.
-An Android emulator must already be running, which can be launched from
-Android Studio's Device Manager.
+From this checkout, open the OME workspace:
 
-To run both the Swift and Kotlin apps simultaneously,
-launch the OpenMusicEvent target from Xcode.
-A build phases runs the "Launch Android APK" script that
-will deploy the transpiled app a running Android emulator or connected device.
-Logging output for the iOS app can be viewed in the Xcode console, and in
-Android Studio's logcat tab for the transpiled Kotlin app.
+```sh
+open Project.xcworkspace
+```
+
+Run the `OpenMusicEvent App` target from Xcode.
+
+For this package-family migration, `Package.swift` resolves the split ATProto,
+OAuth, SQLite, server, Bluesky, and Composable Atmosphere packages from the
+local `swift-composable-atmosphere-reorg` checkout. It also resolves the isolated
+Tangled, Constellation, UserInput, and Calendar Events companion checkouts. Open
+`Atmosphere.xcworkspace` at the package-family root to work with these packages,
+the demo app, and OME together. If a checkout moves, set
+`OME_COMPOSABLE_ATMOSPHERE_PATH` for the family root or the corresponding
+`OME_COMPOSABLE_ATMOSPHERE_TANGLED_PATH`,
+`OME_COMPOSABLE_ATMOSPHERE_CONSTELLATION_PATH`,
+`OME_COMPOSABLE_ATMOSPHERE_USERINPUT_PATH`, or
+`OME_COMPOSABLE_CALENDAR_EVENTS_PATH` override before resolving dependencies.
+The companion manifests also contain local paths to the family packages, so
+update those paths if the family checkout moves.
+These local dependencies are for migration validation; the split packages are
+not published releases yet.
+
+The former OME `BlueskyActorCache` product is now the family's `Bluesky`
+product (`import Bluesky`). The cache models, dependency client, and migration
+names are unchanged, so existing profile rows remain in the same tables.
+
+For Android, have Android Studio installed and an emulator or device running.
+The Skip build phases translate and deploy the Android app from the shared Swift
+sources. iOS logs appear in Xcode; Android logs are available in Android Studio
+or with `adb logcat`.
+
+## CLI and Source Validation
+
+The package builds an `ome` executable for source repository workflows:
+
+```sh
+swift run ome source validate <source> --organizer-id <did> --verbose
+```
+
+`<source>` can be a local OpenMusicEvent source repository root or a supported
+Tangled repository reference. The validator parses the source tree, checks its
+event files, imports valid records into the default local database, and prints a
+summary.
+
+### Publishing source event records
+
+`ome protocol publish-events` publishes selected source editions to their owner's
+PDS. Add `--all-records` to include contributors, stage places and lineups, programs,
+festival days, timed program items and credits, communication categories and posts,
+posters, and site maps. Map each edition to an Event URI explicitly:
+
+```sh
+ome protocol publish-events /path/to/source \
+  --event '2026=at://did:plc:publisher/events.openmusic.event/3mx6isyz5jy22' \
+  --created-at '2026-10-06T03:35:50Z' \
+  --all-records --identity-map /path/to/publication-identities.json \
+  --image-cache /path/to/publication-images \
+  --dry-run
+```
+
+Repeat `--event` for other editions. The dry run validates the complete graphs,
+downloads post embed images, saves the identity map, and prints the exact records
+without authenticating. Clear bare domains receive an HTTPS scheme. Ambiguous
+contributor link strings fail by default; `--preserve-link-text` instead appends
+them as labeled contributor description text and reports each conversion. Keep that identity map, the Event mappings, and the
+creation timestamp for every retry. The optional image cache freezes downloaded
+bytes across dry runs and retries; choose a new cache directory to refresh artwork. Removing `--dry-run` publishes using the
+stored OME OAuth session; `--output /path/to/new-receipts.json` saves verified
+URI, CID, payload, and hash receipts. Existing receipt files are never overwritten.
+
+Related records are written and read back before the parent Event is updated.
+A failed write or mismatched readback stops publication. Successful earlier
+writes remain on the PDS; retrying with the same identity map updates those same
+records. This command does not delete records removed from the source.
+
+Local images and post embeds are uploaded as blobs. Oversized post images are
+compressed to fit the 2 MB embed limit at their original dimensions; the post
+also retains a link to the original source image. Other HTTPS artwork keeps its
+source URL. Stages become edition-specific EventPlace records; publishing does
+not invent cross-edition Stage identities. Source calendar/workspace metadata and
+legacy `organizer-info.yml` are not canonical event graph records. PDS verification
+does not imply that an AppView supports or indexes every published collection.
+
+For a local sandbox, `--session-file /private/session.json --pds pds.example.test`
+accepts an explicitly provided createSession result. The optional
+`--ca-certificate /path/to/root.crt` trusts that PDS's test CA for this invocation.
+Keep session files private and remove them after use; never commit credentials.
+
+
+## Testing
+
+Run the package test suite with:
+
+```sh
+swift test
+```
+
+For narrower compile checks while working on a module, build a specific target:
+
+```sh
+swift build --target OpenMusicEventSource
+swift build --target OpenMusicEventAppEventViewer
+swift build --target SwiftUITabFeaturesTests
+```
+
+Skip parity checks can be run with:
+
+```sh
+skip test
+```
+
+## Development Notes
+
+The app favors direct Swift domain modeling, small feature modules, and explicit
+dependencies. Point-Free libraries are used where they carry their weight:
+ComposableArchitecture2 for feature state and actions, Dependencies for
+environment control, Sharing for shared state, SQLiteData/GRDB for persistence,
+and CustomDump for focused assertions.
+
+The first frame is the native app. ATProto, Tangled, source repositories, and
+Skip are supporting infrastructure for identity, distribution, editing, and
+cross-platform delivery.
+
+## Web CI and deployment
+
+Application PRs and web CI run in [ometools/open-music-event on GitHub](https://github.com/ometools/open-music-event).
+PRs validate Linux AppView tests, generated lexicons, and a local HTTP smoke test.
+Main builds one immutable artifact and deploys staging; production requires approval
+and promotes the same staged artifact. See [the hosting runbook](Docs/AppViewHostingBaseline.md#github-workflows)
+for required settings and the existing Pages domain cutover.

@@ -1,0 +1,94 @@
+{
+  "defs" : {
+    "main" : {
+      "description" : "An organizer-owned named destination within one event edition. The record must be in the event's repository and contains its own display data, independently of any linked persistent stage.",
+      "key" : "tid",
+      "record" : {
+        "nullable" : [
+          "description",
+          "locators",
+          "links",
+          "media",
+          "kind"
+        ],
+        "properties" : {
+          "createdAt" : {
+            "description" : "Client-declared timestamp when this record was created. Preserved through place edits.",
+            "format" : "datetime",
+            "type" : "string"
+          },
+          "description" : {
+            "description" : "The organizer's description of the place, such as access or arrival instructions within the event.",
+            "maxGraphemes" : 3000,
+            "maxLength" : 30000,
+            "type" : "string"
+          },
+          "event" : {
+            "description" : "The DID-based record URI of the events.openmusic.event edition containing this place. A different edition requires a new place identity.",
+            "format" : "at-uri",
+            "type" : "string"
+          },
+          "kind" : {
+            "description" : "The place's primary use. Missing or unrecognized kinds still render using the common place fields.",
+            "refs" : [
+              "events.openmusic.defs#eventPlaceStage",
+              "events.openmusic.defs#eventPlaceEntrance",
+              "events.openmusic.defs#eventPlaceCamping",
+              "events.openmusic.defs#eventPlaceInfo"
+            ],
+            "type" : "union"
+          },
+          "links" : {
+            "description" : "Public links for this place, in preferred display order. Missing values are not inherited from a linked stage.",
+            "items" : {
+              "ref" : "events.openmusic.defs#link",
+              "type" : "ref"
+            },
+            "type" : "array"
+          },
+          "locators" : {
+            "description" : "Locators for this place. A map pin requires an understood coordinate locator; a place without one remains displayable by name.",
+            "items" : {
+              "refs" : [
+                "community.lexicon.location.address",
+                "community.lexicon.location.fsq",
+                "community.lexicon.location.geo",
+                "community.lexicon.location.hthree"
+              ],
+              "type" : "union"
+            },
+            "type" : "array"
+          },
+          "media" : {
+            "description" : "Organizer-selected media for this place, in preferred display order. Blob sources belong to this record's repository. Missing values are not inherited from a linked stage.",
+            "items" : {
+              "refs" : [
+                "events.openmusic.defs#image",
+                "events.openmusic.defs#mediaRecord",
+                "events.openmusic.defs#externalMedia"
+              ],
+              "type" : "union"
+            },
+            "type" : "array"
+          },
+          "name" : {
+            "description" : "The organizer's name for this place, independent of any persistent stage profile.",
+            "maxGraphemes" : 500,
+            "maxLength" : 5000,
+            "minLength" : 1,
+            "type" : "string"
+          }
+        },
+        "required" : [
+          "event",
+          "name",
+          "createdAt"
+        ],
+        "type" : "object"
+      },
+      "type" : "record"
+    }
+  },
+  "id" : "events.openmusic.eventPlace",
+  "lexicon" : 1
+}

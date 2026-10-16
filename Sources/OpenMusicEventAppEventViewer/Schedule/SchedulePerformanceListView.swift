@@ -1,0 +1,311 @@
+import OpenMusicEventDatabase
+import OpenMusicEventLexicon
+import ComposableArchitecture2
+import Dependencies
+import Foundation
+import OpenMusicEventComponents
+import ScheduleComponents
+import Sharing
+import SQLiteData
+import SwiftUI
+
+@Feature
+public struct SchedulePerformanceList {
+    public init() {}
+
+    public struct State {
+        public init(
+            eventID: Event.ID,
+            scheduleDivision: ScheduleList.ScheduleDivision
+        ) {
+            self.eventID = eventID
+            AttendeePerformance.mark("performance-list-query-timeZone.begin", event: eventID.description)
+            self._timeZone = FetchOne(
+                Event.timeZoneQuery(eventID: eventID)
+            )
+            AttendeePerformance.mark("performance-list-query-timeZone.end", event: eventID.description)
+            self.scheduleDivision = scheduleDivision
+            AttendeePerformance.mark("performance-list-query-performanceRows.begin", event: eventID.description)
+            _performanceRows = FetchAll(
+                PerformanceRow.all(eventID: eventID)
+            )
+            AttendeePerformance.mark("performance-list-query-performanceRows.end", event: eventID.description)
+            AttendeePerformance.mark("performance-list-query-schedules.begin", event: eventID.description)
+            _schedules = FetchAll(
+                ScheduleList.schedulesQuery(eventID: eventID)
+            )
+            AttendeePerformance.mark("performance-list-query-schedules.end", event: eventID.description)
+            AttendeePerformance.mark("performance-list-query-stages.begin", event: eventID.description)
+            _stages = FetchAll(
+                ScheduleList.stagesQuery(eventID: eventID)
+            )
+            AttendeePerformance.mark("performance-list-query-stages.end", event: eventID.description)
+            AttendeePerformance.mark("performance-list-query-event.begin", event: eventID.description)
+            _event = FetchOne(Event.where { $0.id.eq(eventID) })
+            AttendeePerformance.mark("performance-list-query-event.end", event: eventID.description)
+            AttendeePerformance.mark("performance-list-query-programs.begin", event: eventID.description)
+            _programs = FetchAll(Program.where { $0.event.eq(eventID) })
+            AttendeePerformance.mark("performance-list-query-programs.end", event: eventID.description)
+        }
+
+        public let eventID: Event.ID
+        @FetchOne public var timeZone: TimeZone?
+        var eventTimePresentation: EventTimePresentation? {
+            timeZone.map { EventTimePresentation(timeZone: $0) }
+        }
+        public let scheduleDivision: ScheduleList.ScheduleDivision
+
+        @FetchAll public var performanceRows: [PerformanceRow]
+        @FetchAll public var schedules: [Schedule]
+        @FetchAll public var stages: [EventPlace]
+        @FetchOne public var event: Event?
+        @FetchAll public var programs: [Program]
+
+        public func selectedSchedule(
+            selectedScheduleID: Schedule.ID?
+        ) -> Schedule? {
+            guard let selectedScheduleID = resolvedSelectedScheduleID(selectedScheduleID) else {
+                return nil
+            }
+            return schedules.first { $0.id == selectedScheduleID }
+        }
+
+        public func selectedScheduleTitle(
+            selectedScheduleID: Schedule.ID?
+        ) -> String {
+            guard let schedule = selectedSchedule(selectedScheduleID: selectedScheduleID),
+                  let timeZone
+            else { return "Select Schedule" }
+            return ScheduleList.scheduleTitle(schedule, in: timeZone)
+        }
+
+        public func visiblePerformanceRows(
+            selectedScheduleID: Schedule.ID?
+        ) -> [PerformanceRow] {
+            ScheduleList.visiblePerformances(
+                performanceRows: performanceRows,
+                scheduleID: resolvedSelectedScheduleID(selectedScheduleID),
+                division: scheduleDivision
+            )
+        }
+
+        public var unscheduledPerformanceRows: [PerformanceRow] {
+            guard let programID = scheduleDivision.programID else { return [] }
+            return performanceRows.filter {
+                $0.performance.program == programID && $0.performance.schedule == nil
+            }
+        }
+
+        public func resolvedSelectedScheduleID(
+            _ selectedScheduleID: Schedule.ID?
+        ) -> Schedule.ID? {
+            ScheduleList.resolvedSelectedScheduleID(
+                selectedScheduleID,
+                schedules: ScheduleList.orderedSchedules(event: event, schedules: schedules)
+            )
+        }
+
+        public var visibleStages: [EventPlace] {
+            ScheduleList.visibleStages(
+                stages: stages,
+                division: scheduleDivision
+            )
+        }
+    }
+
+    public enum Action {
+        case newUserScheduleButtonTapped(ProgramItem.ID)
+        case scheduleDivisionButtonTapped(ScheduleList.ScheduleDivision)
+        case userScheduleMembershipButtonTapped(
+            ProgramItem.ID,
+            UserSchedule.ID
+        )
+    }
+
+    public var body: some Feature {
+        Update { _, action in
+            switch action {
+            case let .newUserScheduleButtonTapped(performanceID):
+                store.addTask {
+                    let task = try store.post(
+                        key: SchedulePerformanceNewUserScheduleRequested.self,
+                        value: performanceID
+                    )
+                    await task?.value
+                }
+
+            case let .scheduleDivisionButtonTapped(division):
+                store.addTask {
+                    let task = try store.post(
+                        key: ScheduleDivisionRequested.self,
+                        value: division
+                    )
+                    await task?.value
+                }
+
+            case let .userScheduleMembershipButtonTapped(performanceID, scheduleID):
+                store.addTask {
+                    let task = try store.post(
+                        key: SchedulePerformanceUserScheduleMembershipRequested.self,
+                        value: SchedulePerformanceUserScheduleMembershipRequest(
+                            performanceID: performanceID,
+                            scheduleID: scheduleID
+                        )
+                    )
+                    await task?.value
+                }
+            }
+        }
+    }
+}
+
+public struct SchedulePerformanceListView: View {
+    @Environment(\.dateTimeRangeResolutionPolicy) var dateTimeRangeResolutionPolicy
+    @Environment(\.eventTimePresentation) var eventTimePresentation
+    @Environment(\.scheduleNowScrollRequest) var scheduleNowScrollRequest
+    @Environment(\.performanceReactionMenuContext) var reactionMenuContext
+    @Bindable var store: StoreOf<SchedulePerformanceList>
+    let selectedScheduleID: Schedule.ID?
+    let userScheduleOverlay: UserScheduleOverlay
+    let showsAuthoringControls: Bool
+    let performanceButtonTapped: (ProgramItem.ID) -> Void
+
+    public init(
+        store: StoreOf<SchedulePerformanceList>,
+        selectedScheduleID: Schedule.ID?,
+        userScheduleOverlay: UserScheduleOverlay,
+        showsAuthoringControls: Bool,
+        performanceButtonTapped: @escaping (ProgramItem.ID) -> Void
+    ) {
+        self.store = store
+        self.selectedScheduleID = selectedScheduleID
+        self.userScheduleOverlay = userScheduleOverlay
+        self.showsAuthoringControls = showsAuthoringControls
+        self.performanceButtonTapped = performanceButtonTapped
+    }
+
+    public var body: some View {
+        let rows = store.state.visiblePerformanceRows(selectedScheduleID: selectedScheduleID)
+        let unscheduledRows = store.state.unscheduledPerformanceRows
+        if rows.isEmpty && unscheduledRows.isEmpty {
+            List {}
+                .listStyle(.plain)
+                .overlay {
+                    ScheduleEmptyView(
+                        title: ScheduleList.emptyScheduleTitle(
+                            scheduleDivision: store.scheduleDivision,
+                            scheduleTitle: store.state.selectedScheduleTitle(
+                                selectedScheduleID: selectedScheduleID
+                            )
+                        ),
+                        otherScheduleDivisions: otherScheduleDivisions,
+                        onScheduleDivisionTapped: { division in
+                            store.send(.scheduleDivisionButtonTapped(division))
+                        }
+                    )
+                    .padding()
+                }
+        } else if eventTimePresentation != nil {
+            PeriodicTimelineView(every: 1) { currentDate in
+                ScrollViewReader { proxy in
+                    List {
+                        ForEach(rows) { row in
+                            performanceRow(row, now: currentDate)
+                        }
+                        if !unscheduledRows.isEmpty {
+                            Section("Unscheduled") {
+                                ForEach(unscheduledRows) { row in
+                                    performanceRow(row, now: currentDate)
+                                }
+                            }
+                        }
+                    }
+                    .listStyle(.plain)
+                    .onChange(of: scheduleNowScrollRequest) { _, request in
+                        guard let request else { return }
+                        if request.animated {
+                            withAnimation {
+                                proxy.scrollTo(request.performanceID, anchor: .center)
+                            }
+                        } else {
+                            proxy.scrollTo(request.performanceID, anchor: .center)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func performanceRow(_ row: PerformanceRow, now: Date) -> some View {
+        if let eventTimePresentation {
+            Button {
+                performanceButtonTapped(row.performanceID)
+            } label: {
+                SchedulePerformanceRow(
+                    row: row,
+                    timeRangeText: eventTimePresentation.programItemRowTimeRange(
+                        for: row.performance
+                    ),
+                    daySegmentText: row.performance.startDate.map {
+                        eventTimePresentation.daySegment(
+                            for: $0, policy: dateTimeRangeResolutionPolicy
+                        )
+                    },
+                    userScheduleOverlay: userScheduleOverlay,
+                    now: now
+                )
+            }
+            .id(row.performanceID)
+            .accessibilityIdentifier("button.performance.\(row.performanceID.description)")
+            .navigationLinkListRowStyle()
+            .contextMenu {
+                PerformanceReactionMenuContent(
+                    performanceID: row.performance.id,
+                    context: reactionMenuContext
+                )
+                if let selectedSchedule = userScheduleOverlay.selectedSchedule {
+                    membershipButton(row: row, schedule: selectedSchedule)
+                    Divider()
+                }
+                ForEach(userScheduleOverlay.schedules) { schedule in
+                    membershipButton(row: row, schedule: schedule)
+                }
+                Button {
+                    store.send(.newUserScheduleButtonTapped(row.performanceID))
+                } label: {
+                    Label("Add to a new schedule", systemImage: "plus")
+                }
+            }
+        }
+    }
+
+    var otherScheduleDivisions: [ScheduleList.ScheduleDivision] {
+        ScheduleList.scheduleDivisions(event: store.event, programs: store.programs)
+            .filter { $0 != store.scheduleDivision }
+    }
+
+    @ViewBuilder
+    func membershipButton(
+        row: PerformanceRow,
+        schedule: UserSchedule
+    ) -> some View {
+        let isMember = userScheduleOverlay.contains(
+            performanceID: row.performanceID,
+            in: schedule.id
+        )
+        Button {
+            store.send(
+                .userScheduleMembershipButtonTapped(
+                    row.performanceID,
+                    schedule.id
+                )
+            )
+        } label: {
+            Label(
+                "\(isMember ? "Remove from" : "Add to") \(schedule.title)",
+                mappedSystemImage: userScheduleSystemImage
+            )
+        }
+    }
+}

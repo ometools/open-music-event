@@ -1,0 +1,38 @@
+appId: ${APP_ID}
+---
+# Relaunch preserves the reader database/cache, so the second run tests replacement.
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: {id: menu.account, text: Sign in}
+    timeout: 30000
+- extendedWaitUntil:
+    visible: Testival 2026
+    timeout: 30000
+- tapOn: Testival 2026
+- extendedWaitUntil:
+    visible: ${DESCRIPTION}
+    timeout: 30000
+- assertVisible: '.*August 1.*2, 2026.*'
+- assertVisible: '.*1 Fixture Road, Denver, CO 80202.*'
+- takeScreenshot: reader-event-and-image
+- scrollUntilVisible:
+    element: Testival Website
+    direction: DOWN
+- assertVisible: Testival Website
+- assertVisible: Event Information
+- assertVisible: Report an Incident
+- takeScreenshot: reader-event-links
+- runFlow: ../helpers/back.yaml
+- tapOn: Minimal Event
+- assertVisible: Minimal Event
+- assertNotVisible: About
+- assertNotVisible: Links
+- assertNotVisible: Location
+- takeScreenshot: reader-minimal-event
+- runFlow: ../helpers/back.yaml
+- tapOn: Testival 2026
+- extendedWaitUntil:
+    visible: ${DESCRIPTION}
+    timeout: 30000
+- takeScreenshot: reader-final-event

@@ -1,0 +1,15 @@
+appId: ${APP_ID}
+---
+- extendedWaitUntil:
+    visible: {id: menu.account}
+    timeout: 30000
+- tapOn: {id: menu.account}
+- tapOn: Sign In
+- assertVisible: Your Atmosphere account
+- assertVisible: {id: field.account.handle}
+- tapOn: Sign Up
+- assertVisible: Private Test PDS
+- tapOn: Sign In
+- assertVisible: {id: field.account.handle}
+- tapOn: Close
+- assertVisible: {id: menu.account}

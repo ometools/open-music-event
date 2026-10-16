@@ -1,4 +1,4 @@
-package open.music.event
+package open.music.event.app
 
 import skip.lib.*
 import skip.model.*
@@ -7,20 +7,37 @@ import skip.ui.*
 
 import android.Manifest
 import android.app.Application
-import androidx.activity.enableEdgeToEdge
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Context
+import android.graphics.Color as AndroidColor
+import android.os.Build
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.SystemBarStyle
+import androidx.activity.ComponentActivity
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material3.MaterialTheme
 import androidx.core.app.ActivityCompat
 
-internal val logger: SkipLogger = SkipLogger(subsystem = "bundle.ome.OpenMusicEvent", category = "OpenMusicEvent")
+internal val logger: SkipLogger = SkipLogger(subsystem = "open.music.event", category = "OpenMusicEvent")
+
+private typealias AppRootView = OpenMusicEventApplicationEntryView
+private typealias AppDelegate = OpenMusicEventAppDelegate
+private typealias AppBootstrap = OpenMusicEventAndroidApplication
+
+private const val emergencyNotificationChannelID = "emergency-alerts"
 
 /// AndroidAppMain is the `android.app.Application` entry point, and must match `application android:name` in the AndroidMainfest.xml file.
 open class AndroidAppMain: Application {
@@ -31,9 +48,27 @@ open class AndroidAppMain: Application {
         super.onCreate()
         logger.info("starting app")
         ProcessInfo.launch(applicationContext)
+        AppBootstrap.prepareDependencies(uiAutomation = BuildConfig.OME_UI_AUTOMATION, profile = BuildConfig.OME_UI_AUTOMATION_PROFILE)
+        createEmergencyNotificationChannel()
     }
 
     companion object {
+    }
+
+    private fun createEmergencyNotificationChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+
+        val channel = NotificationChannel(
+            emergencyNotificationChannelID,
+            "Emergency alerts",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "Urgent safety information from event organizers."
+            enableVibration(true)
+        }
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE)
+            as NotificationManager
+        notificationManager.createNotificationChannel(channel)
     }
 }
 
@@ -46,6 +81,7 @@ open class MainActivity: AppCompatActivity {
         super.onCreate(savedInstanceState)
         logger.info("starting activity")
         UIApplication.launch(this)
+        AppDelegate.shared.onInit()
         enableEdgeToEdge()
 
         setContent {
@@ -55,6 +91,8 @@ open class MainActivity: AppCompatActivity {
                 SideEffect { saveableStateHolder.removeState(true) }
             }
         }
+
+        AppDelegate.shared.onLaunch()
 
         // Example of requesting permissions on startup.
         // These must match the permissions in the AndroidManifest.xml file.
@@ -69,33 +107,33 @@ open class MainActivity: AppCompatActivity {
     }
 
     override fun onStart() {
+        logger.info("onStart")
         super.onStart()
-        OpenMusicEventAppDelegate.shared.onStart()
     }
 
     override fun onResume() {
         super.onResume()
-        OpenMusicEventAppDelegate.shared.onResume()
+        AppDelegate.shared.onResume()
     }
 
     override fun onPause() {
         super.onPause()
-        OpenMusicEventAppDelegate.shared.onPause()
+        AppDelegate.shared.onPause()
     }
 
     override fun onStop() {
         super.onStop()
-        OpenMusicEventAppDelegate.shared.onStop()
+        AppDelegate.shared.onStop()
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        OpenMusicEventAppDelegate.shared.onDestroy()
+        AppDelegate.shared.onDestroy()
     }
 
     override fun onLowMemory() {
         super.onLowMemory()
-        OpenMusicEventAppDelegate.shared.onLowMemory()
+        AppDelegate.shared.onLowMemory()
     }
 
     override fun onRestart() {
@@ -103,7 +141,7 @@ open class MainActivity: AppCompatActivity {
         super.onRestart()
     }
 
-    override fun onSaveInstanceState(bundle: android.os.Bundle): Unit = super.onSaveInstanceState(bundle)
+    override fun onSaveInstanceState(outState: android.os.Bundle): Unit = super.onSaveInstanceState(outState)
 
     override fun onRestoreInstanceState(bundle: android.os.Bundle) {
         // Usually you restore your state in onCreate(). It is possible to restore it in onRestoreInstanceState() as well, but not very common. (onRestoreInstanceState() is called after onStart(), whereas onCreate() is called before onStart().
@@ -121,12 +159,34 @@ open class MainActivity: AppCompatActivity {
 }
 
 @Composable
+internal fun SyncSystemBarsWithTheme() {
+    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+
+    val transparent = AndroidColor.TRANSPARENT
+    val style = if (dark) {
+        SystemBarStyle.dark(transparent)
+    } else {
+        SystemBarStyle.light(transparent, transparent)
+    }
+
+    val activity = LocalContext.current as? ComponentActivity
+    DisposableEffect(style) {
+        activity?.enableEdgeToEdge(
+            statusBarStyle = style,
+            navigationBarStyle = style
+        )
+        onDispose { }
+    }
+}
+
+@Composable
 internal fun PresentationRootView(context: ComposeContext) {
     val colorScheme = if (isSystemInDarkTheme()) ColorScheme.dark else ColorScheme.light
     PresentationRoot(defaultColorScheme = colorScheme, context = context) { ctx ->
+        SyncSystemBarsWithTheme()
         val contentContext = ctx.content()
         Box(modifier = ctx.modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            OpenMusicEventRootView().Compose(context = contentContext)
+            AppRootView().Compose(context = contentContext)
         }
     }
 }

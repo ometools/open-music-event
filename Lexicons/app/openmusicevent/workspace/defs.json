@@ -1,0 +1,164 @@
+{
+  "lexicon": 1,
+  "id": "app.openmusicevent.workspace.defs",
+  "defs": {
+    "listItem": {
+      "type": "object",
+      "description": "A renderable summary of one Workspace proposal.",
+      "required": [
+        "uri",
+        "canonicalSource",
+        "title",
+        "authorDID",
+        "status",
+        "targetBranch",
+        "createdAt",
+        "updatedAt",
+        "renderStatus"
+      ],
+      "properties": {
+        "uri": { "type": "string", "format": "at-uri" },
+        "canonicalSource": { "type": "string", "format": "at-uri" },
+        "title": { "type": "string" },
+        "authorDID": { "type": "string", "format": "did" },
+        "status": {
+          "type": "string",
+          "knownValues": [
+            "sh.tangled.repo.pull.status.open",
+            "sh.tangled.repo.pull.status.closed",
+            "sh.tangled.repo.pull.status.merged"
+          ]
+        },
+        "targetBranch": { "type": "string" },
+        "createdAt": { "type": "string", "format": "datetime" },
+        "updatedAt": { "type": "string", "format": "datetime" },
+        "pullNumber": { "type": "integer", "minimum": 0 },
+        "pageURL": { "type": "string", "format": "uri" },
+        "renderStatus": { "type": "string", "knownValues": [
+          "app.openmusicevent.workspace.defs#awaitingInput",
+          "app.openmusicevent.workspace.defs#pending",
+          "app.openmusicevent.workspace.defs#ready"
+        ] }
+      }
+    },
+    "detail": {
+      "type": "object",
+      "description": "A Workspace proposal with source, record, lifecycle, and rendered diff facts.",
+      "required": [
+        "uri",
+        "authorDID",
+        "status",
+        "recordAvailability",
+        "renderStatus"
+      ],
+      "properties": {
+        "uri": { "type": "string", "format": "at-uri" },
+        "canonicalSource": { "type": "string", "format": "at-uri" },
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "authorDID": { "type": "string", "format": "did" },
+        "status": {
+          "type": "string",
+          "knownValues": [
+            "sh.tangled.repo.pull.status.open",
+            "sh.tangled.repo.pull.status.closed",
+            "sh.tangled.repo.pull.status.merged"
+          ]
+        },
+        "targetRepositoryDID": { "type": "string", "format": "did" },
+        "targetBranch": { "type": "string" },
+        "source": { "type": "ref", "ref": "#source" },
+        "createdAt": { "type": "string", "format": "datetime" },
+        "updatedAt": { "type": "string", "format": "datetime" },
+        "pullNumber": { "type": "integer", "minimum": 0 },
+        "roundNumber": { "type": "integer", "minimum": 0 },
+        "pageURL": { "type": "string", "format": "uri" },
+        "patchURL": { "type": "string", "format": "uri" },
+        "recordCID": { "type": "string", "format": "cid" },
+        "recordAvailability": { "type": "string", "knownValues": [
+          "app.openmusicevent.workspace.defs#awaitingRecord",
+          "app.openmusicevent.workspace.defs#present",
+          "app.openmusicevent.workspace.defs#deleted"
+        ] },
+        "statusRecordURI": { "type": "string", "format": "at-uri" },
+        "renderStatus": { "type": "string", "knownValues": [
+          "app.openmusicevent.workspace.defs#awaitingInput",
+          "app.openmusicevent.workspace.defs#pending",
+          "app.openmusicevent.workspace.defs#ready"
+        ] },
+        "presentation": { "type": "ref", "ref": "#presentation" }
+      }
+    },
+    "page": {
+      "type": "object",
+      "description": "A cursor-paginated page of Workspace proposals.",
+      "required": ["proposals"],
+      "properties": {
+        "proposals": {
+          "type": "array",
+          "items": { "type": "ref", "ref": "#listItem" }
+        },
+        "cursor": { "type": "string" }
+      }
+    },
+    "source": {
+      "type": "object",
+      "required": ["branch"],
+      "properties": {
+        "repositoryDID": { "type": "string", "format": "did" },
+        "branch": { "type": "string" },
+        "revision": { "type": "string" }
+      }
+    },
+    "presentation": {
+      "type": "object",
+      "description": "A versioned, renderable projection of the proposal's source changes.",
+      "required": ["formatVersion", "groups"],
+      "properties": {
+        "formatVersion": { "type": "integer", "minimum": 1 },
+        "groups": {
+          "type": "array",
+          "items": { "type": "ref", "ref": "#presentationGroup" }
+        }
+      }
+    },
+    "presentationGroup": {
+      "type": "object",
+      "required": ["id", "displayName", "records"],
+      "properties": {
+        "id": { "type": "string" },
+        "displayName": { "type": "string" },
+        "records": {
+          "type": "array",
+          "items": { "type": "ref", "ref": "#presentationRecord" }
+        }
+      }
+    },
+    "presentationRecord": {
+      "type": "object",
+      "required": ["id", "transition", "changedFields", "sourceFiles"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "transition": { "type": "ref", "ref": "#presentationTransition" },
+        "changedFields": { "type": "array", "items": { "type": "string" } },
+        "sourceFiles": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "presentationTransition": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": { "type": "string", "knownValues": ["added", "modified", "deleted"] },
+        "before": {
+          "type": "unknown",
+          "description": "The complete prior OME record, including its $type discriminator."
+        },
+        "after": {
+          "type": "unknown",
+          "description": "The complete proposed OME record, including its $type discriminator."
+        }
+      }
+    }
+  }
+}

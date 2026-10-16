@@ -1,0 +1,51 @@
+appId: ${APP_ID}
+---
+# Run with the workspace fixture profile on an isolated UI-test device.
+- launchApp
+- extendedWaitUntil:
+    visible: {id: button.browse-event.3mrdbziccpcah}
+    timeout: 30000
+- tapOn: {id: button.browse-event.3mrdbziccpcah}
+- tapOn: {id: button.enter-event.3mrdbziccpcah}
+- tapOn: More
+- tapOn: {id: tab-feature.settings}
+- tapOn: Enter Workspace
+- tapOn: More
+- extendedWaitUntil:
+    visible: Leave Workspace
+    timeout: 15000
+- assertVisible: Relationships
+- runFlow: helpers/back.yaml
+- tapOn: {id: tab-feature.about}
+- tapOn: {id: button.event-info.edit}
+- assertVisible: Edit Event Info
+- tapOn: {id: field.event-info.name}
+- eraseText
+- inputText: Testival Review Edit
+- tapOn: Save
+- runFlow: helpers/back.yaml
+- tapOn: {id: tab-feature.workspace}
+- assertNotVisible: Records
+- tapOn: {id: workspace.changes.Events}
+- assertVisible: Testival Review Edit
+- assertVisible: Testival 2026
+- assertVisible: Before
+- assertVisible: After
+- takeScreenshot: workspace-semantic-review
+- tapOn: {id: workspace.publish}
+- assertVisible: Publish Changes
+- tapOn: {id: publication.review}
+- tapOn: {id: workspace.changes.Events}
+- assertVisible: Testival Review Edit
+- assertVisible: Testival 2026
+- assertVisible: Before
+- assertVisible: After
+- assertVisible: {id: publication.publish}
+- takeScreenshot: publish-semantic-review
+# Review only: this UI pass must not publish fixture content to a real account.
+- tapOn: {id: publication.close}
+- tapOn: {id: workspace.changes.reset}
+- tapOn: Reset
+- extendedWaitUntil:
+    visible: No local changes.
+    timeout: 15000

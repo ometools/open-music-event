@@ -1,0 +1,128 @@
+appId: ${APP_ID}
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible:
+      id: button.browse-event.3mrdbziccpcah
+    timeout: 30000
+- tapOn:
+    id: button.browse-event.3mrdbziccpcah
+- tapOn:
+    id: button.enter-event.3mrdbziccpcah
+- extendedWaitUntil:
+    visible:
+      id: view.schedule.at://did:web:example.com/events.openmusic.event/3mrdbziccpcah
+    timeout: 30000
+- tapOn: More
+- tapOn:
+    id: tab-feature.settings
+- tapOn: Enter Workspace
+- tapOn: More
+- extendedWaitUntil:
+    visible: Leave Workspace
+    timeout: 15000
+- assertNotVisible: Edit Event
+- runFlow: helpers/back.yaml
+- extendedWaitUntil:
+    visible:
+      id: tab-feature.workspace
+    timeout: 15000
+- tapOn:
+    id: tab-feature.workspace
+- assertVisible: No local changes.
+- assertNotVisible: Records
+- takeScreenshot: 91-workspace-empty
+- runFlow: helpers/back.yaml
+- tapOn:
+    id: tab-feature.about
+- extendedWaitUntil:
+    visible:
+      id: button.event-info.edit
+    timeout: 15000
+- tapOn:
+    id: button.event-info.edit
+- extendedWaitUntil:
+    visible: Edit Event Info
+    timeout: 15000
+- tapOn:
+    id: field.event-info.name
+- eraseText
+- inputText: Testival Workspace Edit
+- tapOn: Save
+- extendedWaitUntil:
+    visible: Testival Workspace Edit
+    timeout: 15000
+- assertVisible:
+    id: button.event-info.edit
+- takeScreenshot: 92-workspace-edited-event
+- runFlow: helpers/back.yaml
+- tapOn:
+    id: tab-feature.workspace
+- tapOn:
+    id: workspace.changes.Events
+- extendedWaitUntil:
+    visible: Testival Workspace Edit
+    timeout: 15000
+- assertVisible: Before
+- assertVisible: After
+- assertVisible: Testival 2026
+- tapOn:
+    id: workspace.changes.reset
+- assertVisible: Reset workspace changes?
+- tapOn: Reset
+- extendedWaitUntil:
+    visible: No local changes.
+    timeout: 15000
+- extendedWaitUntil:
+    notVisible: Resetting changes
+    timeout: 15000
+- waitForAnimationToEnd
+- takeScreenshot: 93-workspace-reset
+- runFlow: helpers/back.yaml
+- tapOn:
+    id: tab-feature.about
+- extendedWaitUntil:
+    visible: Testival 2026
+    timeout: 15000
+- assertNotVisible: Testival Workspace Edit
+- tapOn: Comms
+- extendedWaitUntil:
+    visible:
+      id: view.communications.at://did:web:example.com/events.openmusic.event/3mrdbziccpcah
+    timeout: 15000
+- tapOn:
+    id: button.channel-actions.at://did:web:example.com/social.ome.category/3mrdbziccpcah
+- assertVisible: Move Down
+- tapOn: Move Down
+- tapOn:
+    id: button.channel-actions.at://did:web:example.com/social.ome.category/3mrdbziccpcah
+- assertVisible: Move Up
+- tapOn: Edit
+- extendedWaitUntil:
+    visible: Edit Channel
+    timeout: 15000
+- tapOn: Cancel
+- tapOn: Schedule
+- tapOn: Saturday
+- tapOn: Manage Schedules
+- tapOn: Saturday
+- assertVisible: Move Down
+- tapOn: Edit
+- extendedWaitUntil:
+    visible: Edit Schedule
+    timeout: 15000
+- tapOn: Cancel
+- runFlow: helpers/back.yaml
+- tapOn: Event Schedule
+- tapOn:
+    id: button.schedule-add
+- tapOn: Programs…
+- extendedWaitUntil:
+    visible: Workshops
+    timeout: 15000
+- tapOn:
+    id: button.program-actions.at://did:web:example.com/events.openmusic.program/3mrdbziccpcaj
+- assertVisible: Delete
+- tapOn: Delete
+- assertVisible: Delete Program?

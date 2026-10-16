@@ -1,0 +1,28 @@
+appId: ${APP_ID}
+---
+# Start in Event Info after saving edits. The app owns every publication write.
+- runFlow: ../helpers/back.yaml
+- tapOn: {id: tab-feature.workspace}
+- tapOn: {id: workspace.publish}
+- tapOn: {id: publication.review}
+- tapOn: {id: workspace.changes.Events}
+- assertVisible: Testival 2026
+- scrollUntilVisible:
+    element: {id: publication.publish}
+    direction: DOWN
+- takeScreenshot: reviewed-publication
+- tapOn: {id: publication.publish}
+- runFlow:
+    when: {visible: Continue}
+    commands:
+      - tapOn: Continue
+      - extendedWaitUntil:
+          visible: Password
+          timeout: 30000
+- runFlow:
+    when: {visible: Password}
+    file: authorize.yaml
+- extendedWaitUntil:
+    visible: {id: publication.verified}
+    timeout: 60000
+- takeScreenshot: verified-publication

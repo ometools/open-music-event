@@ -1,0 +1,21 @@
+appId: ${APP_ID}
+---
+- launchApp
+- runFlow:
+    when: {visible: {id: source.import.submit}}
+    file: ../helpers/back.yaml
+- tapOn: My Events
+- tapOn: {id: events.import}
+- tapOn: {id: source.import.testival}
+- tapOn: {id: source.import.publisher}
+- eraseText
+- inputText: ${PUBLISHER_DID}
+- tapOn: return
+- tapOn: {id: source.import.submit}
+- extendedWaitUntil:
+    visible: {id: source.import.complete, text: '2 Events are ready in My Events.'}
+    timeout: 30000
+- takeScreenshot: imported-events
+- runFlow: ../helpers/back.yaml
+- assertVisible: Testival 2026
+- assertVisible: Minimal Event

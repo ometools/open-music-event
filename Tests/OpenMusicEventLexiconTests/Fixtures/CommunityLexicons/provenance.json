@@ -1,0 +1,36 @@
+{
+  "repository": "https://github.com/lexicon-community/lexicon",
+  "revision": "b4a2b19613105ede6b43e1330d3831842278b073",
+  "files": [
+    {
+      "source": "community/lexicon/location/address.json",
+      "file": "community.lexicon.location.address.json",
+      "sha256": "2e5e404e8ce05d6b447fbd55272c0572224d3518c259733b03216a08ae0ac8ab"
+    },
+    {
+      "source": "community/lexicon/location/geo.json",
+      "file": "community.lexicon.location.geo.json",
+      "sha256": "b02c5312aa36cb038407e4ab7cfd28d213120f22dbd085d733073f800393a43f"
+    },
+    {
+      "source": "community/lexicon/location/fsq.json",
+      "file": "community.lexicon.location.fsq.json",
+      "sha256": "a1656d55746d122aab592ed90d40d2cf241b41af1d091d8db77c4a13a38cf263"
+    },
+    {
+      "source": "community/lexicon/location/hthree.json",
+      "file": "community.lexicon.location.hthree.json",
+      "sha256": "da72b5cbdb42be22f98a6d843cd4d2c3e0c9e7cbf21d1adc4a8445851624c810"
+    },
+    {
+      "source": "community/lexicon/calendar/event.json",
+      "file": "community.lexicon.calendar.event.json",
+      "sha256": "1d612281a347142a061487c2735de0c8ebffded44f33531c9dd71c9a29087d47"
+    },
+    {
+      "source": "LICENSE",
+      "file": "LICENSE",
+      "sha256": "5ed6e1f3ec954a39372ddc4135542a4a860a412cbb9d1b2236754003464b3c2d"
+    }
+  ]
+}

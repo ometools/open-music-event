@@ -1,0 +1,66 @@
+name: Web staging
+'on':
+  push:
+    branches:
+      - main
+permissions:
+  contents: read
+concurrency:
+  group: web-staging
+  cancel-in-progress: false
+jobs:
+  staging:
+    name: Build and deploy staging
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    environment:
+      name: staging
+      url: ${{ vars.OME_STAGING_URL }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      OME_RELEASE_BUCKET: ${{ vars.OME_RELEASE_BUCKET }}
+      OME_STAGING_SSH_HOST: ${{ vars.OME_STAGING_SSH_HOST }}
+      OME_STAGING_SSH_USER: ${{ vars.OME_STAGING_SSH_USER }}
+      OME_STAGING_SERVICE: ${{ vars.OME_STAGING_SERVICE }}
+      OME_STAGING_DATABASE: ${{ vars.OME_STAGING_DATABASE }}
+      OME_STAGING_URL: ${{ vars.OME_STAGING_URL }}
+      OME_STAGING_KNOWN_HOSTS: ${{ vars.OME_STAGING_KNOWN_HOSTS }}
+      OME_STAGING_SSH_KEY: ${{ secrets.OME_STAGING_SSH_KEY }}
+      OME_SWIFT_JOBS: '1'
+      OME_DEPENDENCY_TOKEN: ${{ secrets.OME_DEPENDENCY_TOKEN }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Check deployment configuration
+        run: python3 Scripts/web-release/pipeline.py preflight
+      - name: Test release and promotion rules
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 -m unittest discover -s Scripts/web-release -p 'test_*.py' -v
+      - name: Obtain short-lived AWS credentials
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a
+        with:
+          role-to-assume: ${{ vars.OME_AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-duration-seconds: 14400
+      - name: Test and package the immutable candidate
+        run: python3 Scripts/web-release/pipeline.py build
+      - name: Publish candidate and deploy staging
+        run: python3 Scripts/web-release/pipeline.py stage
+      - name: Save test and phase diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: web-release-reports-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 7
+          if-no-files-found: ignore
+          include-hidden-files: true
+          path: |
+            .build/web-release-run.*/tests*.xml
+            .build/web-release-run.*/phases.tsv
+            .build/web-release-run.*/smoke.log
+            .build/web-release/verified-manifest.json

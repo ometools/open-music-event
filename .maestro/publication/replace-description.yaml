@@ -1,0 +1,12 @@
+appId: ${APP_ID}
+---
+# Resume in the Event form, placing the caret after the final character.
+- assertVisible: Edit Event Info
+- tapOn: {point: '87%,43%'}
+- eraseText: 200
+- inputText: ${DESCRIPTION}
+- tapOn: Edit Event Info
+- tapOn: Save
+- extendedWaitUntil:
+    visible: {id: button.event-info.edit}
+    timeout: 15000

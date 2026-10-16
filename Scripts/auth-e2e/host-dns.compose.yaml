@@ -1,0 +1,16 @@
+services:
+  host-dns:
+    image: coredns/coredns:1.14.7
+    command: ["-conf", "/config/Corefile"]
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    network_mode: bridge
+    ports:
+      - "127.0.0.1:1053:1053/udp"
+      - "127.0.0.1:1053:1053/tcp"
+    volumes:
+      - ./host-dns.Corefile:/config/Corefile:ro

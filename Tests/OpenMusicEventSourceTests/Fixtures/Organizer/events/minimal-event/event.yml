@@ -1,0 +1,4 @@
+name: Minimal Event
+status: planned
+mode: community.lexicon.calendar.event#inperson
+timeZone: America/Denver

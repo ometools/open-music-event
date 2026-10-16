@@ -1,0 +1,23 @@
+appId: ${APP_ID}
+---
+# Start in an installed event viewer. Exit clears only the selected-event preference.
+# Relaunch preserves the database but gives the first measured entry a fresh process.
+- tapOn: More
+- tapOn: Exit
+- stopApp
+- launchApp
+- scrollUntilVisible:
+    element:
+      id: button.browse-event.${EVENT_RKEY}
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    id: button.browse-event.${EVENT_RKEY}
+- tapOn:
+    id: button.enter-event.${EVENT_RKEY}
+- extendedWaitUntil:
+    visible:
+      id: view.schedule.${EVENT_URI}
+    timeout: 60000
+- assertNotVisible: "Unable to load all event details."
+- runFlow: 15-installed-event-performance.yaml

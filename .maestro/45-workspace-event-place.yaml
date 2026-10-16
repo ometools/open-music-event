@@ -1,0 +1,132 @@
+appId: ${APP_ID}
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible:
+      id: button.browse-event.3mrdbziccpcah
+    timeout: 30000
+- tapOn:
+    id: button.browse-event.3mrdbziccpcah
+- tapOn:
+    id: button.enter-event.3mrdbziccpcah
+- extendedWaitUntil:
+    visible:
+      id: view.schedule.at://did:web:example.com/events.openmusic.event/3mrdbziccpcah
+    timeout: 30000
+- tapOn: More
+- tapOn:
+    id: tab-feature.settings
+- tapOn: Enter Workspace
+- tapOn: More
+- extendedWaitUntil:
+    visible: Leave Workspace
+    timeout: 15000
+- runFlow: helpers/back.yaml
+- tapOn: More
+- tapOn:
+    id: tab-feature.stages
+- extendedWaitUntil:
+    visible:
+      id: view.stages.at://did:web:example.com/events.openmusic.event/3mrdbziccpcah
+    timeout: 15000
+- tapOn: Add Event Place
+- assertVisible: New Event Place
+- tapOn: Name
+- inputText: North Gate
+- tapOn: Kind
+- tapOn: Entrance
+- tapOn: Save
+- extendedWaitUntil:
+    visible: North Gate
+    timeout: 15000
+- tapOn: North Gate
+- assertVisible: "Kind, Entrance"
+- tapOn:
+    id: button.edit-place
+- assertVisible: Edit Event Place
+- tapOn: Kind
+- tapOn: Camping
+- tapOn: Save
+- extendedWaitUntil:
+    visible: "Kind, Camping"
+    timeout: 15000
+- takeScreenshot: 94-workspace-event-place
+
+# A persistent Stage profile is its own canonical record, linked to a place.
+- runFlow: helpers/back.yaml
+- tapOn: Add Event Place
+- assertVisible: New Event Place
+- tapOn: Name
+- inputText: Profile Test Stage
+- swipe:
+    direction: UP
+- scrollUntilVisible:
+    element: New Stage Profile
+    direction: DOWN
+- tapOn: New Stage Profile
+- assertVisible: New Stage Profile
+- tapOn: Name
+- inputText: Profile Test Stage
+- swipe:
+    start: 50%, 45%
+    end: 50%, 15%
+- scrollUntilVisible:
+    element: Add Media
+    direction: DOWN
+- tapOn: Add Media
+- tapOn: External Link
+- tapOn:
+    id: field.stage-media.url
+- inputText: https://example.com/stage-video
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: button.stage-media.done
+    direction: DOWN
+- tapOn:
+    id: button.stage-media.done
+- assertVisible: External media
+- tapOn: Save
+- extendedWaitUntil:
+    visible: Linked Stage
+    timeout: 15000
+- scrollUntilVisible:
+    element: Change Stage Profile
+    direction: DOWN
+- tapOn: Change Stage Profile
+- extendedWaitUntil:
+    visible:
+      id: view.stage-profiles
+    timeout: 15000
+- tapOn: Profile Test Stage
+- assertVisible: Stage Profile
+- assertVisible: https://example.com/stage-video
+- assertVisible: This Event Place
+- runFlow: helpers/back.yaml
+- runFlow: helpers/back.yaml
+- tapOn: Save
+- extendedWaitUntil:
+    visible: Profile Test Stage
+    timeout: 15000
+- tapOn: Profile Test Stage
+- tapOn:
+    id: button.edit-place
+- scrollUntilVisible:
+    element:
+      id: field.event-place.short-label
+    direction: DOWN
+- tapOn:
+    id: field.event-place.short-label
+- inputText: PTS
+- scrollUntilVisible:
+    element:
+      id: field.event-place.icon-name
+    direction: UP
+- tapOn:
+    id: field.event-place.icon-name
+- inputText: calendar
+- tapOn: Save
+- extendedWaitUntil:
+    visible: Profile Test Stage
+    timeout: 15000

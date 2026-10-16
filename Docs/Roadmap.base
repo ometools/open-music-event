@@ -1,0 +1,23 @@
+filters:
+  and:
+    - type == "roadmap-card"
+views:
+  - type: table
+    name: roadmap-cards
+    order:
+      - id
+      - file.name
+      - tags
+      - launch
+      - area
+      - kind
+      - priority
+      - type
+    sort:
+      - property: id
+        direction: ASC
+    columnSize:
+      note.id: 111
+      file.name: 367
+  - type: table
+    name: View

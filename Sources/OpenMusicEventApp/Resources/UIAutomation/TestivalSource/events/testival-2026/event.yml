@@ -1,0 +1,26 @@
+name: Testival 2026
+description: A compact, deterministic festival that exercises the attendee experience without network content.
+startDate: "2026-08-01"
+endDate: "2026-08-02"
+status: scheduled
+mode: community.lexicon.calendar.event#inperson
+locations:
+- address: 1 Fixture Road, Denver, CO 80202
+  directions: Enter through the blue gate beside the community garden.
+  coordinates:
+    latitude: 39.7392
+    longitude: -104.9903
+  appleMapsLink: https://maps.apple.com/?q=Testival
+  googleMapsLink: https://maps.google.com/?q=Testival
+uris:
+- uri: https://example.com/testival
+  name: Testival Website
+timeZone: America/Denver
+contactNumbers:
+- phoneNumber: "555-0100"
+  title: Event Information
+  description: Attendee information and accessibility support.
+reportingLinks:
+- name: Report an Incident
+  url: https://example.com/testival/report
+  description: Contact the Testival safety team.

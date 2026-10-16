@@ -1,0 +1,30 @@
+appId: ${APP_ID}
+---
+- tapOn: Testival 2026
+- tapOn: More
+- tapOn: {id: tab-feature.settings}
+- tapOn: Enter Workspace
+- tapOn: More
+- extendedWaitUntil:
+    visible: Leave Workspace
+    timeout: 15000
+- runFlow: ../helpers/back.yaml
+- tapOn: {id: tab-feature.about}
+- tapOn: {id: button.event-info.edit}
+- assertVisible: Edit Event Info
+- tapOn:
+    text: 'A compact, deterministic festival that exercises the attendee experience without network content.'
+    point: '95%,95%'
+- eraseText: 150
+- inputText: ${DESCRIPTION}
+- tapOn: Edit Event Info
+- swipe:
+    start: 50%, 40%
+    end: 50%, 15%
+- scrollUntilVisible:
+    element: Add Media
+    direction: DOWN
+- tapOn: Add Media
+- tapOn: Image
+- tapOn: Choose Photos
+- takeScreenshot: choose-event-image
