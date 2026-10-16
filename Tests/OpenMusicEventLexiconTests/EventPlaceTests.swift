@@ -1,8 +1,6 @@
 import CustomDump
 import Foundation
 import ATProtoTypes
-import ATProtoSQLite
-import SQLiteData
 @testable import OpenMusicEventLexicon
 import Testing
 
@@ -206,30 +204,6 @@ struct EventPlaceTests {
         #expect(throws: ValidationError.self) { try place.validateReferences() }
     }
 
-    @Test
-    func `future kinds locators and media survive an unrelated edit and storage`() throws {
-        var place = try EventPlace(
-            id: placeURI, event: eventURI, name: "Future destination", createdAt: createdAt,
-            locators: [.unknown(.object(["$type": "events.example.defs#indoor", "room": "A"]))],
-            media: [.unknown(.object(["$type": "events.example.defs#video", "url": "https://example.com/place.mp4"]))],
-            kind: .unknown(.object(["$type": "events.example.defs#charging", "ports": .integer(4)]))
-        )
-        let original = try place.encodeLexicon()
-        place = try EventPlace.decodeLexicon(original, metadata: .init(uri: placeURI))
-        place.name = "Renamed destination"
-        try place.validateReferences()
-        let database = try DatabaseQueue()
-        try database.write { db in
-            try Self.createPlaceTable(db)
-            try EventPlace.insert { place }.execute(db)
-        }
-        let stored = try database.read { db in try #require(try EventPlace.find(placeURI).fetchOne(db)) }
-        expectNoDifference(stored, place)
-        for field in ["kind", "locators", "media"] {
-            expectNoDifference(try stored.encodeLexicon().object?[field], original.object?[field])
-        }
-    }
-
     @Test(arguments: [
         #"{"$type":"events.openmusic.defs#eventPlaceStage","color":16777216}"#,
         #"{"$type":"events.openmusic.defs#eventPlaceStage","stage":42}"#,
@@ -241,100 +215,8 @@ struct EventPlaceTests {
         #expect(throws: (any Error).self) { try EventPlace.decodeLexicon(.object(payload), metadata: .init(uri: placeURI)) }
     }
 
-    @Test(arguments: ["stage", "generic", "future"])
-    func `schedule rows read event place presentation without a persistent stage table`(_ use: String) throws {
-        let icon = OME.Image(
-            source: .known(.url(try #require(URL(string: "https://example.com/hollow-icon.png")))),
-            role: .known(.icon(.init(canRepresentSubjectWithoutLabel: true)))
-        )
-        let kind: Open<EventPlace.Kind>? = switch use {
-        case "stage": .known(.stage(.init(stage: stageURI, color: OME.Color(rawValue: 0x336699))))
-        case "generic": nil
-        default: .unknown(.object(["$type": "events.example.defs#futurePlace"]))
-        }
-        let place = try EventPlace(
-            id: placeURI, event: eventURI, name: "The Hollow — 2026", createdAt: createdAt,
-            locators: [.known(.geo(.init(latitude: "50.5", longitude: "-116.0")))],
-            media: [.known(.image(icon))],
-            kind: kind
-        )
-        let performance = try PerformanceFixture(
-            id: #require(ATProto.URI("at://did:plc:wickedwoods/events.example.performance/3mrdbziccpcak")),
-            event: eventURI, eventPlace: placeURI, title: "Opening set", startsAt: "2026-09-04T20:00:00Z"
-        )
-        let database = try DatabaseQueue()
-        try database.write { db in
-            // This partial cache deliberately has no Event or Stage table.
-            try Self.createPlaceTable(db)
-            try #sql("""
-                CREATE TABLE "testPlacePerformances" (
-                  "id" TEXT PRIMARY KEY NOT NULL, "cid" TEXT, "event" TEXT NOT NULL,
-                  "eventPlace" TEXT NOT NULL, "title" TEXT NOT NULL, "startsAt" TEXT NOT NULL
-                ) STRICT
-                """).execute(db)
-            try place.validateReferences()
-            try EventPlace.insert { place }.execute(db)
-            try PerformanceFixture.insert { performance }.execute(db)
-        }
-        let rows = try database.read { db in
-            try PerformanceFixture.all
-                .join(EventPlace.all) { $0.eventPlace.eq($1.id) && $0.event.eq($1.event) }
-                .fetchAll(db)
-        }
-        let (scheduled, destination) = try #require(rows.first)
-        expectNoDifference(scheduled, performance)
-        expectNoDifference(destination, place)
-        expectNoDifference(destination.media, [.known(.image(icon))])
-
-        // Linking to a place in a different edition must not produce a schedule row.
-        try database.write { db in
-            try PerformanceFixture.find(performance.id).update {
-                $0.event = #bind(ATProto.URI("at://did:plc:wickedwoods/events.openmusic.event/3mrdbziccpcam")!)
-            }.execute(db)
-        }
-        let mismatchedCount = try database.read { db in
-            try PerformanceFixture.all
-                .join(EventPlace.all) { $0.eventPlace.eq($1.id) && $0.event.eq($1.event) }
-                .fetchAll(db).count
-        }
-        expectNoDifference(mismatchedCount, 0)
-    }
-
     @Test
-    func `persistent stage edits and deletion do not rewrite places in either edition`() throws {
-        var stage = try Stage(id: stageURI, name: "Persistent profile", createdAt: createdAt)
-        let first = try EventPlace(
-            id: placeURI, event: eventURI, name: "2026 stage name", createdAt: createdAt,
-            kind: .known(.stage(.init(stage: stageURI)))
-        )
-        let second = try EventPlace(
-            id: #require(ATProto.URI("at://did:plc:wickedwoods/events.openmusic.eventPlace/3mrdbziccpcan")),
-            event: #require(ATProto.URI("at://did:plc:wickedwoods/events.openmusic.event/3mrdbziccpcam")),
-            name: "2027 stage name", createdAt: createdAt, kind: .known(.stage(.init(stage: stageURI)))
-        )
-        let database = try DatabaseQueue()
-        try database.write { db in
-            try Self.createPlaceTable(db)
-            try #sql("""
-                CREATE TABLE "events.openmusic.stage" (
-                  "id" TEXT PRIMARY KEY NOT NULL, "cid" TEXT, "name" TEXT NOT NULL,
-                  "createdAt" TEXT NOT NULL, "description" TEXT, "links" TEXT, "media" TEXT
-                ) STRICT
-                """).execute(db)
-            try Stage.insert { stage }.execute(db)
-            try EventPlace.insert { first; second }.execute(db)
-            stage.name = "Renamed persistent profile"
-            try Stage.upsert { stage }.execute(db)
-            expectNoDifference(try Stage.find(stageURI).fetchOne(db), stage)
-            expectNoDifference(try EventPlace.find(first.id).fetchOne(db), first)
-            try Stage.find(stageURI).delete().execute(db)
-            expectNoDifference(try EventPlace.find(first.id).fetchOne(db), first)
-            expectNoDifference(try EventPlace.find(second.id).fetchOne(db), second)
-        }
-    }
-
-    @Test
-    func `export roots include both records and the stage use definition without exporting the performance fixture`() throws {
+    func `export roots include both records and the stage use definition`() throws {
         let documents = try LexiconExporter.documents(for: [
             Event.self, Stage.self, EventPlace.self, Program.self,
             OpenMusicEventLexicon.Schedule.self, ProgramItem.self, OME.Color.self,
@@ -366,25 +248,5 @@ struct EventPlaceTests {
         #expect(definitions["stage"] == nil)
     }
 
-    static func createPlaceTable(_ db: Database) throws {
-        try #sql("""
-            CREATE TABLE "events.openmusic.eventPlace" (
-              "id" TEXT PRIMARY KEY NOT NULL, "cid" TEXT, "event" TEXT NOT NULL,
-              "name" TEXT NOT NULL, "createdAt" TEXT NOT NULL, "description" TEXT,
-              "locators" TEXT, "links" TEXT, "media" TEXT, "kind" TEXT
-            ) STRICT
-            """).execute(db)
-    }
 }
 
-// Only the place-reference contract is modeled here; this is not the public Performance schema.
-@Table("testPlacePerformances")
-@Lexicon("events.example.performance", type: .record(key: .tid))
-struct PerformanceFixture: RecordCodable, Equatable {
-    @LexiconIgnored @Column(primaryKey: true) let id: ATProto.URI
-    @LexiconIgnored var cid: ATProto.CID? = nil
-    var event: ATProto.URI
-    var eventPlace: ATProto.URI
-    var title: String
-    var startsAt: ATProto.DateTime
-}

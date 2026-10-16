@@ -1,4 +1,6 @@
 import ATProto
+import ATProtoAppView
+import Dependencies
 import CustomDump
 import Foundation
 #if canImport(FoundationNetworking)
@@ -350,9 +352,9 @@ import Testing
     }
 
     @Test
-    func `opening the store rebuilds browse rows from preserved source projections`() async throws {
+    func `opening the store rebuilds browse rows from canonical rows ingested from source records`() async throws {
         let database = try DatabaseQueue()
-        _ = try OpenMusicEventAppViewStore(database: database)
+        let store = try OpenMusicEventAppViewStore(database: database)
         let canonicalID = ATProto.URI(
             "at://did:plc:venue/events.openmusic.event/3mrdbziccpcaz"
         )!
@@ -366,29 +368,24 @@ import Testing
             timeZone: .gmt,
             programs: [programID]
         )
-        let community = try event(
-            uri: "at://did:plc:community/community.lexicon.calendar.event/3mrdbziccpcyy",
-            catalog: communityCatalog,
-            name: "Preserved Community Event",
-            city: "Butte",
-            latitude: 46.01,
-            longitude: -112.54,
-            startsAt: "2026-10-12T01:00:00Z"
+        let communityURI = ATProto.URI(
+            "at://did:plc:community/community.lexicon.calendar.event/3mrdbziccpcyy"
+        )!
+        let record = try AppView.RecordVersion<Data>(
+            collection: communityCatalog, uri: communityURI, cid: "bafy-preserved-community",
+            value: Data(#"""
+            {"$type":"community.lexicon.calendar.event","name":"Preserved Community Event",
+             "createdAt":"2026-10-10T12:00:00Z","startsAt":"2026-10-12T01:00:00Z",
+             "locations":[{"$type":"community.lexicon.location.geo","latitude":"46.01","longitude":"-112.54"}]}
+            """#.utf8), sequence: 1
         )
-        let encodedCommunity = try JSONEncoder().encode(community)
+        try withDependencies { $0.defaultDatabase = database } operation: {
+            _ = try store.appViewRecordIndexer(tangledWebhookConfiguration: nil)
+                .apply(.put(record), checkpointID: "browse-rebuild")
+        }
+        // Discard only the derived browse index, preserving canonical domain records.
         try await database.write { db in
             try Event.insert { canonical }.execute(db)
-            try CommunityCalendarEventProjection.insert {
-                CommunityCalendarEventProjection(
-                    uri: community.uri.description,
-                    cid: "bafy-preserved-community",
-                    startsAt: community.startsAt,
-                    createdAt: community.createdAt!,
-                    sequence: 1,
-                    event: encodedCommunity
-                )
-            }
-            .execute(db)
             try CalendarEventBrowseProjection.deleteAll(in: db)
         }
 
@@ -411,7 +408,7 @@ import Testing
         }
         #expect(canonicalHasEventViewer == true)
         let communityHasEventViewer = try await database.read { db in
-            try CalendarEventBrowseProjection.find(community.uri.description)
+            try CalendarEventBrowseProjection.find(communityURI.description)
                 .select(\.hasEventViewer)
                 .fetchOne(db)
         }
@@ -432,7 +429,7 @@ import Testing
             ["Enter Event|https://localhost/events/did%3Aplc%3Avenue/3mrdbziccpcaz"]
         )
         let communityDetail = try #require(
-            try rebuiltStore.calendarEvent(uri: community.uri, appViewHost: "localhost")
+            try rebuiltStore.calendarEvent(uri: communityURI, appViewHost: "localhost")
         )
         #expect(!communityDetail.links.contains {
             $0.source == "app.openmusicevent.eventViewer"
@@ -492,33 +489,22 @@ import Testing
     @Test
     func `store caches deployment geocoding overrides before rebuilding browse rows`() throws {
         let database = try DatabaseQueue()
-        _ = try OpenMusicEventAppViewStore(database: database)
-        var community = try event(
-            uri: "at://did:plc:community/community.lexicon.calendar.event/3mrdbziccpcoo",
-            catalog: communityCatalog,
-            name: "Labor Temple Event",
-            city: "Bozeman",
-            latitude: nil,
-            longitude: nil,
-            startsAt: "2026-10-12T01:00:00Z"
+        let store = try OpenMusicEventAppViewStore(database: database)
+        let record = try AppView.RecordVersion<Data>(
+            collection: communityCatalog,
+            uri: ATProto.URI("at://did:plc:community/community.lexicon.calendar.event/3mrdbziccpcoo")!,
+            cid: "bafy-geocoding-override",
+            value: Data(#"""
+            {"$type":"community.lexicon.calendar.event","name":"Labor Temple Event",
+             "createdAt":"2026-10-10T12:00:00Z","startsAt":"2026-10-12T01:00:00Z",
+             "locations":[{"$type":"community.lexicon.location.address",
+               "street":"422 East Mendenhall Street","locality":"Bozeman","region":"MT",
+               "postalCode":"59715","country":"US"}]}
+            """#.utf8), sequence: 1
         )
-        community.locations[0].street = "422 East Mendenhall Street"
-        community.locations[0].region = "MT"
-        community.locations[0].postalCode = "59715"
-        community.locations[0].country = "US"
-        let encodedCommunity = try JSONEncoder().encode(community)
-        try database.write { db in
-            try CommunityCalendarEventProjection.insert {
-                CommunityCalendarEventProjection(
-                    uri: community.uri.description,
-                    cid: "bafy-geocoding-override",
-                    startsAt: community.startsAt,
-                    createdAt: community.createdAt!,
-                    sequence: 1,
-                    event: encodedCommunity
-                )
-            }
-            .execute(db)
+        try withDependencies { $0.defaultDatabase = database } operation: {
+            _ = try store.appViewRecordIndexer(tangledWebhookConfiguration: nil)
+                .apply(.put(record), checkpointID: "geocoding-rebuild")
         }
 
         let rebuiltStore = try OpenMusicEventAppViewStore(

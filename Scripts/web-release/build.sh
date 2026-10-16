@@ -24,7 +24,9 @@ if paths:
 PY
 
 swift test --scratch-path .build/web-tests --jobs 4 --force-resolved-versions --no-parallel --xunit-output "$output/tests.xml"
-python3 - "$output/tests.xml" <<'PY'
+# SwiftPM writes Swift Testing results separately from its XCTest report.
+test_report="$output/tests-swift-testing.xml"
+python3 - "$test_report" <<'PY'
 import sys, xml.etree.ElementTree as ET
 cases = list(ET.parse(sys.argv[1]).getroot().iter("testcase"))
 if not cases or all(case.find("skipped") is not None for case in cases):
@@ -32,6 +34,8 @@ if not cases or all(case.find("skipped") is not None for case in cases):
 if any(case.find("failure") is not None or case.find("error") is not None for case in cases):
     raise SystemExit("The web test report contains failures")
 PY
+cp "$test_report" "$output/tests.xml"
+swift run --scratch-path .build/web-tests --jobs 4 --force-resolved-versions ome-export-lexicons --output Lexicons/Generated --check
 swift build --scratch-path .build/web-release-build --jobs 4 --force-resolved-versions -c release --product OpenMusicEventAppView
 cmp Package.resolved "$output/Package.resolved.input"
 bin_dir="$(swift build --scratch-path .build/web-release-build --jobs 4 --force-resolved-versions -c release --show-bin-path)"

@@ -4,6 +4,7 @@ WORKDIR /src
 COPY Package.swift Package.resolved ./
 COPY Sources ./Sources
 COPY Tests ./Tests
+COPY Lexicons ./Lexicons
 COPY Scripts/web-release ./Scripts/web-release
 ARG OME_RELEASE_REVISION
 ENV OME_RELEASE_REVISION=$OME_RELEASE_REVISION

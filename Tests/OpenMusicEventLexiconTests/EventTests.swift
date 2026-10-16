@@ -1,8 +1,6 @@
 import CustomDump
 import Foundation
 import ATProtoTypes
-import ATProtoSQLite
-import SQLiteData
 @testable import OpenMusicEventLexicon
 import Testing
 
@@ -13,159 +11,19 @@ struct EventTests {
     typealias Event = OpenMusicEventLexicon.Event
 
     @Test
-    func `an unannounced event payload needs only its name creation timestamp and time zone`() throws {
-        let event = try Event(id: uri, name: "Coming soon", createdAt: "2026-09-15T12:34:56.123456789Z", timeZone: .gmt)
+    func `an unannounced event payload needs only its name and creation timestamp`() throws {
+        let event = try Event(id: uri, name: "Coming soon", createdAt: "2026-09-15T12:34:56.123456789Z")
         let json = try event.encodeLexicon()
         expectNoDifference(json, .object([
             "$type": "events.openmusic.event", "name": "Coming soon",
-            "createdAt": "2026-09-15T12:34:56.123456789Z", "timeZone": "GMT",
+            "createdAt": "2026-09-15T12:34:56.123456789Z",
         ]))
         expectNoDifference(try Event.decodeLexicon(json, metadata: .init(uri: uri)), event)
     }
 
-    @Test(arguments: [true, false])
-    func `the public event model round trips through its SQLite table`(enforceForeignKey: Bool) throws {
-        let programURI = try #require(ATProto.URI(
-            "at://did:plc:wickedwoods/events.openmusic.program/3mrdbziccpcal"
-        ))
-        let scheduleURI = try #require(ATProto.URI(
-            "at://did:plc:wickedwoods/events.openmusic.schedule/3mrdbziccpcam"
-        ))
-        var event = try Event(
-            id: uri,
-            cid: "last-observed-revision",
-            name: "Wicked Woods",
-            createdAt: "2026-01-01T12:00:00.000Z",
-            timeZone: try #require(TimeZone(identifier: "America/Edmonton")),
-            description: "Music in the woods",
-            start: .known(.day(.init(value: try #require(LocalDate("2026-09-04"))))),
-            end: .known(.time(.init(value: "2026-09-07T06:00:00.000Z"))),
-            status: .unknown("events.example.defs#tentative"),
-            mode: .known(.inPerson),
-            locations: [
-                .init(
-                    name: "Festival grounds",
-                    locators: [.known(.address(.init(country: "CA", locality: "Invermere")))],
-                    links: [.init(url: try #require(URL(string: "https://example.com/map")), title: "Map")]
-                ),
-            ],
-            links: [.init(url: try #require(URL(string: "https://example.com/tickets")), role: .known(.tickets(.init())))],
-            programs: [programURI],
-            schedules: [scheduleURI],
-            rsvpExpected: true,
-            categories: [#require(ATProto.URI("at://did:plc:wickedwoods/social.ome.category/3mrdbziccpcam"))],
-            siteMap: .init(title: "Festival map", styles: [
-                .init(id: "public", title: "Public", image: .init(
-                    source: .known(.url(#require(URL(string: "https://example.com/map.png")))),
-                    role: .known(.siteMap)
-                )),
-            ], defaultStyleID: "public")
-        )
-        event.media = [
-            .known(.image(.init(source: .known(.url(try #require(URL(string: "https://example.com/poster.png"))))))),
-            .unknown(.object([
-                "$type": "events.example.defs#video",
-                "url": "https://example.com/recap.mp4",
-            ])),
-        ]
-
-        let database = try DatabaseQueue()
-        try database.write { db in
-            try #sql(
-                """
-                CREATE TABLE \(quote: Event.tableName) (
-                  "id" TEXT PRIMARY KEY NOT NULL,
-                  "cid" TEXT,
-                  "name" TEXT NOT NULL,
-                  "createdAt" TEXT NOT NULL,
-                  "timeZone" TEXT NOT NULL,
-                  "description" TEXT,
-                  "start" TEXT,
-                  "end" TEXT,
-                  "status" TEXT,
-                  "mode" TEXT,
-                  "locations" TEXT,
-                  "links" TEXT,
-                  "media" TEXT,
-                  "programs" TEXT,
-                  "schedules" TEXT,
-                  "rsvpExpected" INTEGER,
-                  "categories" TEXT,
-                  "siteMap" TEXT
-                ) STRICT
-                """
-            )
-            .execute(db)
-            try db.execute(sql: """
-                CREATE TABLE testChildren (
-                  id TEXT PRIMARY KEY NOT NULL,
-                  cid TEXT,
-                  event TEXT NOT NULL \(enforceForeignKey ? "REFERENCES \"events.openmusic.event\"(id)" : ""),
-                  localNote TEXT
-                ) STRICT
-                """)
-            let child = try EventChild(
-                id: #require(ATProto.URI("at://did:plc:wickedwoods/events.example.child/3mrdbziccpcai")),
-                event: event.id,
-                localNote: "Local only"
-            )
-            if enforceForeignKey {
-                #expect(throws: (any Error).self) { try EventChild.insert { child }.execute(db) }
-            } else {
-                try EventChild.insert { child }.execute(db)
-                #expect(try EventChild.all.fetchCount(db) == 1)
-                #expect(try EventChild.all.join(Event.all) { $0.event.eq($1.id) }.fetchAll(db).count == 0)
-            }
-            try Event.insert { event }.execute(db)
-            #expect(throws: (any Error).self) { try Event.insert { event }.execute(db) }
-            if enforceForeignKey { try EventChild.insert { child }.execute(db) }
-            let storedChild = try #require(try EventChild.find(child.id).fetchOne(db))
-            expectNoDifference(storedChild, child)
-            expectNoDifference(try storedChild.encodeLexicon(), .object([
-                "$type": "events.example.child", "event": .string(event.id.description),
-            ]))
-            #expect(try EventChild.all.join(Event.all) { $0.event.eq($1.id) }.fetchAll(db).count == 1)
-        }
-
-        let stored = try database.read { db in
-            try #require(try Event.all.fetchOne(db))
-        }
-        #expect(Event.tableName == "events.openmusic.event")
-        expectNoDifference(stored, event)
-        expectNoDifference(try stored.encodeLexicon(), try event.encodeLexicon())
-
-        event.name = "Wicked Woods — updated locally"
-        #expect(event.cid == "last-observed-revision")
-        try database.write { db in
-            try Event.find(uri).update { $0.name = event.name }.execute(db)
-            let edited = try #require(try Event.find(uri).fetchOne(db))
-            expectNoDifference(edited, event)
-            try Event.find(uri).update { $0.cid = #bind("new-repository-revision" as ATProto.CID?) }.execute(db)
-            #expect(try Event.find(uri).fetchOne(db)?.cid == "new-repository-revision")
-            #expect(try EventChild.all.join(Event.all) { $0.event.eq($1.id) }.fetchAll(db).count == 1)
-            if enforceForeignKey {
-                #expect(throws: (any Error).self) { try Event.find(uri).delete().execute(db) }
-                #expect(try EventChild.all.fetchCount(db) == 1)
-            } else {
-                try db.execute(
-                    sql: "UPDATE \"events.openmusic.event\" SET id = ? WHERE id = ?",
-                    arguments: ["at://did:plc:wickedwoods/events.example.other/3mrdbziccpcah", uri.description]
-                )
-                let invalidIdentity = try #require(try Event.all.fetchOne(db))
-                #expect(throws: (any Error).self) { try invalidIdentity.encodeLexicon() }
-                try db.execute(
-                    sql: "UPDATE \"events.openmusic.event\" SET id = ?",
-                    arguments: [uri.description]
-                )
-                try Event.find(uri).delete().execute(db)
-                #expect(try EventChild.all.fetchCount(db) == 1)
-            }
-        }
-    }
-
-    @Test(arguments: ["description", "start", "end", "status", "mode", "locations", "links", "media", "programs", "schedules", "rsvpExpected", "categories", "siteMap"])
+    @Test(arguments: ["timeZone", "description", "start", "end", "status", "mode", "locations", "links", "media", "programs", "schedules", "rsvpExpected", "categories", "siteMap"])
     func `optional fields accept explicit null`(_ field: String) throws {
-        let event = try Event(id: uri, name: "Event", createdAt: "2026-09-15T00:00:00Z", timeZone: .gmt)
+        let event = try Event(id: uri, name: "Event", createdAt: "2026-09-15T00:00:00Z")
         var object = try #require(event.encodeLexicon().object)
         object[field] = .null
         let decoded = try Event.decodeLexicon(.object(object), metadata: .init(uri: uri))
@@ -224,7 +82,7 @@ struct EventTests {
         #expect(throws: ValidationError.self) { try event.validateReferences() }
     }
 
-    @Test(arguments: ["name", "createdAt", "timeZone", "$type"])
+    @Test(arguments: ["name", "createdAt", "$type"])
     func `required public record fields cannot disappear`(_ field: String) throws {
         var object = try #require(Event(id: uri, name: "Event", createdAt: "2026-09-15T00:00:00Z", timeZone: .gmt).encodeLexicon().object)
         object.removeValue(forKey: field)
@@ -363,8 +221,8 @@ struct EventTests {
         }
         let event = try #require(documents.first { $0.id.rawValue == "events.openmusic.event" })
         let record = try #require(Lexicon.JSONValue(encoding: event).object?["defs"]?.object?["main"]?.object?["record"]?.object)
-        expectNoDifference(record["required"], .array(["name", "createdAt", "timeZone"]))
-        expectNoDifference(record["nullable"], .array(["description", "start", "end", "status", "mode", "locations", "links", "media", "programs", "schedules", "rsvpExpected", "categories", "siteMap"]))
+        expectNoDifference(record["required"], .array(["name", "createdAt"]))
+        expectNoDifference(record["nullable"], .array(["timeZone", "description", "start", "end", "status", "mode", "locations", "links", "media", "programs", "schedules", "rsvpExpected", "categories", "siteMap"]))
         expectNoDifference(record["properties"]?.object?["name"], .object([
             "description": "The public name of the event.",
             "type": "string", "minLength": 1, "maxLength": 5_000, "maxGraphemes": 500,
@@ -447,16 +305,6 @@ struct EventTests {
             }
         }
     }
-}
-
-// Reverse macro order from Event, to prove both composition orders.
-@Lexicon("events.example.child", type: .record(key: .tid))
-@Table("testChildren")
-private struct EventChild: RecordCodable, Equatable {
-    @LexiconIgnored @Column(primaryKey: true) let id: ATProto.URI
-    @LexiconIgnored var cid: ATProto.CID? = nil
-    var event: ATProto.URI
-    @LexiconIgnored var localNote: String?
 }
 
 private func schemaStructure(_ value: Any) -> Any {

@@ -681,8 +681,23 @@ let openMusicEventLexiconTestTarget = Target.testTarget(
     dependencies: [
         "OpenMusicEventLexicon",
         .product(name: "CustomDump", package: "swift-custom-dump"),
+        .product(name: "IssueReportingTestSupport", package: "xctest-dynamic-overlay"),
     ],
     resources: [.copy("Fixtures")]
+)
+
+let openMusicEventRecordStorageTestTarget = Target.testTarget(
+    name: "OpenMusicEventRecordStorageTests",
+    dependencies: [
+        "OpenMusicEventDatabase",
+        .product(name: "CustomDump", package: "swift-custom-dump"),
+        .product(name: "IssueReportingTestSupport", package: "xctest-dynamic-overlay"),
+    ]
+)
+
+let openMusicEventLexiconExportTarget = Target.executableTarget(
+    name: "OpenMusicEventLexiconExport",
+    dependencies: ["OpenMusicEventLexicon"]
 )
 
 let openMusicEventSourceCloneTarget = Target.target(
@@ -848,6 +863,7 @@ var applicationTargets: [Target] = [
         ]
     ),
     openMusicEventLexiconTestTarget,
+    openMusicEventRecordStorageTestTarget,
     .testTarget(
         name: "OpenMusicEventReleaseToolsTests",
         dependencies: [
@@ -1328,6 +1344,7 @@ let appViewTargets: [Target] = [
             "SourceEditing",
             .product(name: "AWSLambdaEvents", package: "swift-aws-lambda-events"),
             .product(name: "CustomDump", package: "swift-custom-dump"),
+            .product(name: "IssueReportingTestSupport", package: "xctest-dynamic-overlay"),
             .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
             .product(name: "HTTPTypes", package: "swift-http-types"),
             .product(name: "HummingbirdLambda", package: "hummingbird-lambda"),
@@ -1382,13 +1399,14 @@ case .lexicon:
         atprotoDependency, atprotoSQLiteDependency, routingDependency,
         .package(url: "https://github.com/pointfreeco/swift-case-paths", branch: "protocol-case-paths"),
         .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.0.0"),
+        .package(url: "https://github.com/pointfreeco/xctest-dynamic-overlay", from: "1.9.0"),
         .package(url: "https://github.com/pointfreeco/sqlite-data", exact: "1.6.6", traits: ["SQLiteDataTagged"]),
         .package(url: "https://github.com/pointfreeco/swift-structured-queries", exact: "0.32.0", traits: ["StructuredQueriesTagged"]),
     ]
     targets = [
         openMusicEventTimeZonesTarget, openMusicEventLexiconTarget, openMusicEventLexiconTestTarget,
         routingTarget, routingTestTarget,
-        .executableTarget(name: "OpenMusicEventLexiconExport", dependencies: ["OpenMusicEventLexicon"]),
+        openMusicEventLexiconExportTarget,
     ]
 
 case .database:
@@ -1407,6 +1425,7 @@ case .database:
             "ErrorHandling",
             "OpenMusicEventDatabase",
             "OpenMusicEventDatabaseTests",
+            "OpenMusicEventRecordStorageTests",
             "OpenMusicEventSourceEditing",
             "OpenMusicEventSourceEditingTests",
             "SourceEditing",
@@ -1414,13 +1433,15 @@ case .database:
     }
 
 case .appView:
-    products = appViewProducts
+    products = appViewProducts + [.executable(name: "ome-export-lexicons", targets: ["OpenMusicEventLexiconExport"])]
     dependencies = [routingDependency, jwsetKitDependency] + appViewDependencies
     targets = [
         routingTarget,
         openMusicEventTimeZonesTarget,
         openMusicEventLexiconTarget,
         openMusicEventLexiconTestTarget,
+        openMusicEventRecordStorageTestTarget,
+        openMusicEventLexiconExportTarget,
         openMusicEventSourceCloneTarget,
         openMusicEventSourceTarget,
     ]

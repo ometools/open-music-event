@@ -51,4 +51,28 @@ import Testing
         #expect(location.locators == nil)
         expectNoDifference(location.links?.first?.url.absoluteString, "https://example.com/venue")
     }
+
+    @Test func `source media roles map explicitly without discarding usable artwork`() throws {
+        let record = try source(#"""
+        {"$type":"community.lexicon.calendar.event","name":"Concert","createdAt":"2026-08-01T12:00:00Z",
+         "media":[
+           {"role":"poster","content":{"$type":"blob","ref":{"$link":"bafkreigdcl6knsg6xgvcsrmdehb37xwlstbvcv3kbbmrc37ormgg2ll3g4"},"mimeType":"image/webp","size":100}},
+           {"role":"thumbnail","content":{"$type":"blob","ref":{"$link":"bafkreigdcl6knsg6xgvcsrmdehb37xwlstbvcv3kbbmrc37ormgg2ll3g4"},"mimeType":"image/webp","size":100}},
+           {"content":{"$type":"blob","ref":{"$link":"bafkreigdcl6knsg6xgvcsrmdehb37xwlstbvcv3kbbmrc37ormgg2ll3g4"},"mimeType":"image/webp","size":100}}
+         ]}
+        """#)
+        let result = try CommunityCalendarDomainAdapter.project(record)
+        let media = try #require(result.event.media)
+        #expect(media.count == 3)
+        let roles = try media.map { value -> Open<OME.Image.Role>? in
+            guard case let .known(.image(image)) = value else {
+                throw ValidationError("Expected the source image to survive adaptation")
+            }
+            return image.role
+        }
+        expectNoDifference(roles, [.known(.poster), nil, nil])
+        expectNoDifference(result.diagnostics, [.init(
+            path: "media[1].role", message: "Unsupported image role retained in raw record"
+        )])
+    }
 }

@@ -4,7 +4,7 @@ import Foundation
 import OpenMusicEventLexicon
 
 enum CommunityCalendarDomainAdapter {
-    static let version = 1
+    static let version = 2
     static let collection = "community.lexicon.calendar.event"
 
     struct Diagnostic: Codable, Equatable, Sendable {
@@ -52,18 +52,18 @@ enum CommunityCalendarDomainAdapter {
         event.status = optional("status") { try Open<Event.Status>.decodeLexicon($0) }
         event.mode = optional("mode") { try Open<Event.Mode>.decodeLexicon($0) }
 
-        func array<T>(_ key: String, _ transform: (Lexicon.JSONValue) throws -> T) -> [T]? {
+        func array<T>(_ key: String, _ transform: (Lexicon.JSONValue, String) throws -> T) -> [T]? {
             optional(key) { value in
                 guard case let .array(items) = value else { throw ValidationError("Expected an array") }
                 var projected: [T] = []
                 for (index, item) in items.enumerated() {
-                    do { projected.append(try transform(item)) }
+                    do { projected.append(try transform(item, "\(key)[\(index)]")) }
                     catch { diagnostics.append(.init(path: "\(key)[\(index)]", message: String(describing: error))) }
                 }
                 return projected
             }
         }
-        event.locations = array("locations") { value in
+        event.locations = array("locations") { value, _ in
             guard let location = value.object else { throw ValidationError("Expected a location object") }
             let name = try location["name"].flatMap { $0 == .null ? nil : try String.decodeLexicon($0) }
             let result: Event.Location
@@ -82,7 +82,7 @@ enum CommunityCalendarDomainAdapter {
             _ = try result.encodeLexicon()
             return result
         }
-        event.links = array("uris") { value in
+        event.links = array("uris") { value, _ in
             guard let item = value.object, let text = item["uri"]?.string,
                   let url = URL(string: text) else {
                 throw ValidationError("Event URI cannot be represented by OME.Link; retained in raw record")
@@ -100,7 +100,7 @@ enum CommunityCalendarDomainAdapter {
             }
             return .init(source: .known(.url(url)), role: .known(.poster))
         }) { media.append(.known(.image(poster))) }
-        let images: [Open<OME.Media>]? = array("media") { value in
+        let images: [Open<OME.Media>]? = array("media") { value, path in
             guard let item = value.object, let content = item["content"] else {
                 throw ValidationError("Unsupported media shape; retained in raw record")
             }
@@ -108,7 +108,20 @@ enum CommunityCalendarDomainAdapter {
             guard ["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"].contains(blob.mimeType) else {
                 throw ValidationError("Unsupported non-image blob; retained in raw record")
             }
-            let role = try item["role"].map { try Open<OME.Image.Role>.decodeLexicon($0) }
+            let role: Open<OME.Image.Role>?
+            if let sourceRole = item["role"], sourceRole != .null {
+                if let name = sourceRole.string, let mapped = OME.Image.Role(rawValue: name) {
+                    role = .known(mapped)
+                } else {
+                    role = nil
+                    diagnostics.append(.init(
+                        path: "\(path).role",
+                        message: "Unsupported image role retained in raw record"
+                    ))
+                }
+            } else {
+                role = nil
+            }
             let alt = try item["alt"].map { try OME.AltText.decodeLexicon($0) }
             let image = OME.Image(source: .known(.blob(blob)), alt: alt, role: role)
             _ = try image.encodeLexicon()

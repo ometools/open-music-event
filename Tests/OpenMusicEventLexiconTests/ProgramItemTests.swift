@@ -1,8 +1,6 @@
 import CustomDump
 import Foundation
 import ATProtoTypes
-import ATProtoSQLite
-import SQLiteData
 @testable import OpenMusicEventLexicon
 import Testing
 
@@ -196,57 +194,6 @@ struct ProgramItemTests {
 
         item.schedule = scheduleURI
         try item.validateReferences()
-    }
-
-    @Test
-    func `program items keep ordered media unknown variants and storage`() throws {
-        let streamplaceURI = try #require(ATProto.URI(
-            "at://did:plc:streamplace/place.stream.video/3mrdbziccpcak"
-        ))
-        let youtube = try OME.Media.External(
-            uri: #require(URL(string: "https://youtube.com/watch?v=wicked-woods")),
-            title: "Wicked Woods Live",
-            mediaKind: .known(.video)
-        )
-        var item = try ProgramItem(
-            id: itemURI,
-            event: eventURI,
-            program: programURI,
-            title: "Wicked Woods Live",
-            createdAt: createdAt,
-            media: [
-                .known(.record(.init(uri: streamplaceURI))),
-                .known(.external(youtube)),
-                .unknown(.object(["$type": "media.example.release", "uri": "https://plyr.fm/wicked-woods"])),
-            ]
-        )
-        try item.validateReferences()
-        let original = try item.encodeLexicon()
-        item = try ProgramItem.decodeLexicon(original, metadata: .init(uri: itemURI))
-        item.title = "Wicked Woods Live — remastered"
-
-        let database = try DatabaseQueue()
-        try database.write { db in
-            try #sql("""
-                CREATE TABLE \(quote: ProgramItem.tableName) (
-                  "id" TEXT PRIMARY KEY NOT NULL, "cid" TEXT, "event" TEXT NOT NULL,
-                  "program" TEXT NOT NULL, "schedule" TEXT,
-                  "title" TEXT NOT NULL, "createdAt" TEXT NOT NULL, "description" TEXT,
-                  "eventPlace" TEXT, "startsAt" TEXT, "endsAt" TEXT, "credits" TEXT, "media" TEXT
-                ) STRICT
-                """).execute(db)
-            try ProgramItem.insert { item }.execute(db)
-        }
-        let stored = try database.read { db in try #require(try ProgramItem.find(itemURI).fetchOne(db)) }
-        expectNoDifference(stored, item)
-        let storedJSON = try stored.encodeLexicon()
-        guard case .array(let storedMedia) = storedJSON.object?["media"] else {
-            Issue.record("Expected ordered program media")
-            return
-        }
-        expectNoDifference(storedMedia.map { $0.object?["$type"] }, [
-            "events.openmusic.defs#mediaRecord", "events.openmusic.defs#externalMedia", "media.example.release",
-        ])
     }
 
     @Test

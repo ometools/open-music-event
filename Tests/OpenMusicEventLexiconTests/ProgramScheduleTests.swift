@@ -1,8 +1,6 @@
 import CustomDump
 import Foundation
 import ATProtoTypes
-import ATProtoSQLite
-import SQLiteData
 @testable import OpenMusicEventLexicon
 import Testing
 
@@ -183,49 +181,6 @@ struct ProgramScheduleTests {
         #expect(throws: ValidationError.self) {
             try item.validateGraph(event: event, program: program)
         }
-    }
-
-    @Test
-    func `programs and schedules round trip through independent tables`() throws {
-        let program = try Program(
-            id: programURI,
-            event: eventURI,
-            title: "Schedule",
-            createdAt: createdAt,
-            eventPlaces: [placeURI]
-        )
-        let schedule = try PublicSchedule(
-            id: scheduleURI,
-            event: eventURI,
-            date: #require(LocalDate("2026-09-05")),
-            createdAt: createdAt
-        )
-        let database = try DatabaseQueue()
-        try database.write { db in
-            try #sql("""
-                CREATE TABLE \(quote: Program.tableName) (
-                  "id" TEXT PRIMARY KEY NOT NULL, "cid" TEXT, "event" TEXT NOT NULL,
-                  "title" TEXT NOT NULL, "createdAt" TEXT NOT NULL,
-                  "description" TEXT, "icon" TEXT, "eventPlaces" TEXT NOT NULL
-                ) STRICT
-                """).execute(db)
-            try #sql("""
-                CREATE TABLE \(quote: PublicSchedule.tableName) (
-                  "id" TEXT PRIMARY KEY NOT NULL, "cid" TEXT, "event" TEXT NOT NULL,
-                  "date" TEXT NOT NULL, "createdAt" TEXT NOT NULL, "title" TEXT
-                ) STRICT
-                """).execute(db)
-            try Program.insert { program }.execute(db)
-            try PublicSchedule.insert { schedule }.execute(db)
-        }
-        expectNoDifference(
-            try database.read { db in try Program.find(programURI).fetchOne(db) },
-            program
-        )
-        expectNoDifference(
-            try database.read { db in try PublicSchedule.find(scheduleURI).fetchOne(db) },
-            schedule
-        )
     }
 
     @Test

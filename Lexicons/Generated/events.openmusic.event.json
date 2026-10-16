@@ -5,6 +5,7 @@
       "key" : "tid",
       "record" : {
         "nullable" : [
+          "timeZone",
           "description",
           "start",
           "end",
@@ -57,7 +58,7 @@
             "type" : "array"
           },
           "locations" : {
-            "description" : "Named event locations. Array order is the organizer's preferred display order.",
+            "description" : "Event locations. Array order is the organizer's preferred display order.",
             "items" : {
               "ref" : "events.openmusic.defs#location",
               "type" : "ref"
@@ -147,8 +148,7 @@
         },
         "required" : [
           "name",
-          "createdAt",
-          "timeZone"
+          "createdAt"
         ],
         "type" : "object"
       },

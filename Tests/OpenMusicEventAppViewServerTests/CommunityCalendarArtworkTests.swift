@@ -10,7 +10,8 @@ import Testing
 @testable import OpenMusicEventAppViewServer
 
 @Suite(AppViewTestTime()) struct CommunityCalendarArtworkTests {
-    @Test func `published artwork reaches rows and details and disappears when removed`() throws {
+    @Test(arguments: ["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"])
+    func `published artwork reaches rows and details and disappears when removed`(mimeType: String) throws {
         let database = try DatabaseQueue()
         let store = try OpenMusicEventAppViewStore(database: database)
         let indexer = store.appViewRecordIndexer(tangledWebhookConfiguration: nil)
@@ -21,7 +22,7 @@ import Testing
             "$type": catalog.rawValue, "name": "Concert with artwork", "createdAt": "2026-10-01T12:00:00Z",
             "poster": ["url": "https://laugh.town/cdn/p/posters/concert.webp"],
             "media": [["role": "thumbnail", "alt": "Concert poster", "content": [
-                "$type": "blob", "ref": ["$link": blobCID], "mimeType": "image/webp", "size": 125612
+                "$type": "blob", "ref": ["$link": blobCID], "mimeType": mimeType, "size": 125612
             ]]]
         ]
         try withDependencies { $0.defaultDatabase = database } operation: {
@@ -29,6 +30,13 @@ import Testing
                 cid: ATProto.CID(rawValue: "bafy-artwork"), value: JSONSerialization.data(withJSONObject: value), sequence: 1)
             _ = try indexer.apply(.put(record), checkpointID: "artwork")
         }
+        let diagnostics = try database.read { db in
+            let outcome = try #require(try CommunityCalendarDomainOutcome.find(uri.description).fetchOne(db))
+            return try JSONDecoder().decode([CommunityCalendarDomainAdapter.Diagnostic].self, from: outcome.diagnostics)
+        }
+        expectNoDifference(diagnostics, [.init(
+            path: "media[0].role", message: "Unsupported image role retained in raw record"
+        )])
         let detail = try #require(try store.communityCalendarEvent(uri: uri))
         expectNoDifference(detail.media.count, 2)
         expectNoDifference(detail.media.first?.url.absoluteString, "https://laugh.town/cdn/p/posters/concert.webp")
@@ -39,18 +47,15 @@ import Testing
         #expect(try store.containsWebBlob(record: uri, cid: blobCID))
         #expect(try !store.containsWebBlob(record: uri, cid: "unrelated"))
 
-        // Simulate the previous projection while keeping the original indexed record intact.
-        var legacy = detail
-        legacy.media = []
-        let legacyData = try JSONEncoder().encode(legacy)
-        try database.write { db in
-            try CommunityCalendarEventProjection.find(uri.description).update { $0.event = #bind(legacyData) }.execute(db)
-            try CalendarEventBrowseProjection.upsert(legacy, in: db)
-            try db.execute(sql: "DELETE FROM grdb_migrations WHERE identifier = ?", arguments: ["Preserve community calendar event artwork"])
-        }
-        let migrated = try OpenMusicEventAppViewStore(database: database)
-        expectNoDifference(try migrated.communityCalendarEvent(uri: uri)?.media, detail.media)
-        expectNoDifference(try migrated.browseEventSummaries(.init(catalogs: [catalog], dates: "all")).events.first?.markerMedia, detail.media.first)
+        // Rebuild derived content from retained source records using the production path.
+        let report = try store.rebuildCanonicalCalendar(
+            now: Date(timeIntervalSince1970: 1_791_115_200), progress: { _ in }
+        )
+        #expect(report.passed)
+        let rebuilt = try OpenMusicEventAppViewStore(database: database)
+        expectNoDifference(try rebuilt.communityCalendarEvent(uri: uri)?.media, detail.media)
+        expectNoDifference(try rebuilt.browseEventSummaries(.init(catalogs: [catalog], dates: "all")).events.first?.markerMedia, detail.media.first)
+        #expect(try rebuilt.containsWebBlob(record: uri, cid: blobCID))
 
         // A publisher removes the artwork: neither the row nor the blob route keeps stale media.
         value.removeValue(forKey: "poster")

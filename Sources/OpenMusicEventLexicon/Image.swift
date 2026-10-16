@@ -280,7 +280,7 @@ extension OME.Image {
         }
         @Lexicon("events.openmusic.defs#imageBlob", description: "Image content stored as a blob in the repository that contains the referencing record.")
         struct Blob: Equatable, Sendable {
-            @LexiconField(description: "A JPEG or PNG image blob.", accept: ["image/jpeg", "image/png"], maxSize: 50_000_000)
+            @LexiconField(description: "A JPEG, PNG, WebP, GIF, or AVIF image blob.", accept: ["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"], maxSize: 50_000_000)
             var blob: ATProto.Blob
         }
         @Lexicon("events.openmusic.defs#imageURL", description: "Image content hosted at a public HTTPS URL.")

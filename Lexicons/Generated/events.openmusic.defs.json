@@ -281,9 +281,12 @@
         "blob" : {
           "accept" : [
             "image/jpeg",
-            "image/png"
+            "image/png",
+            "image/webp",
+            "image/gif",
+            "image/avif"
           ],
-          "description" : "A JPEG or PNG image blob.",
+          "description" : "A JPEG, PNG, WebP, GIF, or AVIF image blob.",
           "maxSize" : 50000000,
           "type" : "blob"
         }
@@ -370,8 +373,9 @@
       "type" : "object"
     },
     "location" : {
-      "description" : "A named place associated with the event, with optional machine-readable locators and public links.",
+      "description" : "A place associated with the event, with an optional name, machine-readable locators, and public links.",
       "nullable" : [
+        "name",
         "description",
         "locators",
         "links"
@@ -412,9 +416,6 @@
           "type" : "string"
         }
       },
-      "required" : [
-        "name"
-      ],
       "type" : "object"
     },
     "logoImage" : {

@@ -1,8 +1,6 @@
 import CustomDump
 import Foundation
 import ATProtoTypes
-import ATProtoSQLite
-import SQLiteData
 @testable import OpenMusicEventLexicon
 import Testing
 
@@ -205,43 +203,6 @@ struct ContributorTests {
         contributor.roles = nil
         contributor.media = [.known(.image(.init(source: .known(.url(URL(fileURLWithPath: "/tmp/private.jpg"))))))]
         #expect(throws: ValidationError.self) { try contributor.validateReferences() }
-    }
-
-    @Test
-    func `ordered open roles and the full snapshot round trip through SQLite`() throws {
-        let contributor = try Contributor(
-            id: contributorURI,
-            cid: "cached-revision",
-            event: eventURI,
-            name: "Community Crew",
-            createdAt: createdAt,
-            subject: subject,
-            source: .init(uri: sourceURI, cid: sourceCID),
-            description: "A collective",
-            roles: [.known(.organizer), .unknown("lightingDesigner"), .known(.volunteer)],
-            links: [.init(url: #require(URL(string: "https://crew.example")))],
-            media: [.unknown(.object(["$type": "media.example.video", "url": "https://crew.example/reel"]))]
-        )
-
-        let database = try DatabaseQueue()
-        try database.write { db in
-            try #sql("""
-                CREATE TABLE \(quote: Contributor.tableName) (
-                  "id" TEXT PRIMARY KEY NOT NULL, "cid" TEXT, "event" TEXT NOT NULL,
-                  "name" TEXT NOT NULL, "createdAt" TEXT NOT NULL, "subject" TEXT,
-                  "source" TEXT, "description" TEXT, "roles" TEXT, "links" TEXT, "media" TEXT
-                ) STRICT
-                """).execute(db)
-            try Contributor.insert { contributor }.execute(db)
-        }
-        let stored = try database.read { db in
-            try #require(try Contributor.find(contributorURI).fetchOne(db))
-        }
-        expectNoDifference(stored, contributor)
-        expectNoDifference(try stored.encodeLexicon(), try contributor.encodeLexicon())
-        expectNoDifference(try stored.encodeLexicon().object?["roles"], .array([
-            "organizer", "lightingDesigner", "volunteer",
-        ]))
     }
 
     @Test
