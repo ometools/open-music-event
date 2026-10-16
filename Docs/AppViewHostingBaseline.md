@@ -35,6 +35,43 @@ Only `server/` is implemented. A future independently deployed frontend could
 use `web/`; the website currently ships inside the AppView artifact.
 The local tooling directory remains `Scripts/web-release/`.
 
+### Pull-request validation
+
+PRs targeting `main` first validate workflow YAML and shell syntax and run the
+release-tooling tests. `ci.sh pr` then uses the pinned Linux x86-64 Swift
+toolchain to validate the `OME_APPVIEW=1` package graph, run its existing tests,
+check generated lexicons, and build and smoke-test the debug server locally.
+Tests, schema export, and the debug server share `.build/web-tests`.
+PRs do not make a release archive, write S3 objects, or deploy staging.
+iOS and Android validation belong to separate runner workflows.
+
+Each compiler/schema/smoke phase prints its name, memory capacity and cgroup
+counters, elapsed seconds, maximum process RSS in KiB, and exit status. The phase
+measurements are retained in `phases.tsv` beside the test report and smoke log.
+Maximum process RSS is not aggregate VM usage; cgroup counters provide the
+container-wide memory evidence when available. Runner memory is also printed
+before Docker prepares the toolchain. `OME_SWIFT_JOBS=1` is the initial baseline;
+increase it only after measuring the runner's capacity and a clean build.
+
+Tangled caches `.cache/web-ci/pr` and `.cache/web-ci/release` separately.
+Both the workflow cache keys and the mounted cache directories identify Linux
+x86-64, AppView mode, the toolchain Dockerfile, manifest, and dependency lockfile.
+The directory fingerprint prevents using an incompatible older cache when
+Tangled restores a fallback generation. Cache misses still perform all checks.
+Persistence requires the spindle operator to configure a
+[cache backend](https://docs.tangled.org/spindles#cache).
+
+The source checkout is mounted read-only. Only compiler caches and a fresh
+per-run output directory are writable; only the private dependency-read netrc
+credential is mounted into the build container. AWS and SSH secrets are not
+forwarded into that container. Tangled's repository-level secret isolation still
+needs verification before production credentials are configured.
+
+Release-only compiler and packaging failures may first appear after merge.
+They still stop the deployment before staging is changed.
+
+### Release validation and promotion
+
 A push to `main` runs the Linux build, tests, generated-schema check, and packaged
 HTTP smoke check before uploading a candidate and deploying staging. A successful
 staging deployment records its source revision and artifact digest. The manual

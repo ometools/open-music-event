@@ -1,5 +1,6 @@
 # Secrets: GITHUB_TOKEN, AWS credentials, OME_RELEASE_BUCKET,
-# OME_STAGING_SSH_KEY, OME_STAGING_KNOWN_HOSTS. Keep credentials out of this file.
+# OME_STAGING_SSH_KEY, OME_STAGING_KNOWN_HOSTS.
+# Keep credentials out of this file.
 when:
   - event: ["push"]
     branch: ["main"]
@@ -16,17 +17,29 @@ dependencies:
 
 environment:
   AWS_REGION: us-west-2
+  OME_SWIFT_JOBS: "1"
   OME_STAGING_SSH_HOST: stg.openmusicevent.app
   OME_STAGING_SSH_USER: ubuntu
   OME_STAGING_SERVICE: ome-appview-canary.service
   OME_STAGING_DATABASE: /srv/ome-appview/data/canary/open-music-event-appview.sqlite
   OME_STAGING_URL: https://stg.openmusicevent.app
 
+cache:
+  - key: web-release-linux-amd64-appview-v1
+    hash:
+      - Package.swift
+      - Package.resolved
+      - Scripts/web-release/Dockerfile
+    paths:
+      - .cache/web-ci/release
+    compression-level: 1
+
 steps:
   - name: Check deployment configuration
     command: python3 Scripts/web-release/pipeline.py preflight
   - name: Check web release tooling
-    command: python3 -m unittest discover -s Scripts/web-release -p 'test_*.py' -v
+    command: >-
+      python3 -m unittest discover -s Scripts/web-release -p 'test_*.py' -v
   - name: Test and build immutable web candidate
     command: python3 Scripts/web-release/pipeline.py build
   - name: Publish candidate and deploy staging

@@ -9,9 +9,28 @@ virtualisation:
 dependencies:
   - python3
   - docker-buildx
+  - yamllint
+
+environment:
+  OME_SWIFT_JOBS: "1"
+
+cache:
+  - key: web-pr-linux-amd64-appview-v1
+    hash:
+      - Package.swift
+      - Package.resolved
+      - Scripts/web-release/Dockerfile
+    paths:
+      - .cache/web-ci/pr
+    compression-level: 1
 
 steps:
+  - name: Validate CI configuration
+    command: |
+      yamllint -d relaxed .tangled/workflows
+      for script in Scripts/web-release/*.sh; do bash -n "$script"; done
   - name: Check web release tooling
-    command: python3 -m unittest discover -s Scripts/web-release -p 'test_*.py' -v
-  - name: Test and package web candidate
-    command: bash Scripts/web-release/ci.sh
+    command: >-
+      python3 -m unittest discover -s Scripts/web-release -p 'test_*.py' -v
+  - name: Test Linux server, check lexicons, and smoke-test debug server
+    command: bash Scripts/web-release/ci.sh pr
