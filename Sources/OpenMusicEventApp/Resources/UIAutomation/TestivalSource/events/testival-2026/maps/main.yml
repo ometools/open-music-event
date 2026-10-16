@@ -1,0 +1,13 @@
+title: Testival Grounds
+defaultStyleID: public
+styles:
+- id: public
+  title: Public
+  image:
+    source:
+      file: maps/public-map.png
+- id: safety
+  title: Safety
+  image:
+    source:
+      file: maps/safety-map.png

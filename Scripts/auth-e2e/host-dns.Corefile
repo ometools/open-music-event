@@ -1,0 +1,10 @@
+# Host-only DNS view. Container clients keep their existing internal DNS view.
+ome-auth.test:1053 {
+    errors
+    template IN A {
+        answer "{{ .Name }} 30 IN A 127.0.0.1"
+    }
+    template IN ANY {
+        rcode NOERROR
+    }
+}

@@ -1,0 +1,77 @@
+{
+  "lexicon": 1,
+  "id": "events.openmusic.getEventBundle",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Fetch a complete versioned attendee snapshot from the AppView. Media bytes are fetched separately.",
+      "parameters": {
+        "type": "params",
+        "required": [
+          "uri"
+        ],
+        "properties": {
+          "uri": {
+            "type": "string",
+            "format": "at-uri"
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "ref",
+          "ref": "#bundle"
+        }
+      },
+      "errors": [
+        {
+          "name": "InvalidEventURI"
+        },
+        {
+          "name": "EventNotFound"
+        },
+        {
+          "name": "EventIndexUnavailable"
+        },
+        {
+          "name": "EventIndexCatchingUp"
+        },
+        {
+          "name": "EventBundleIncomplete"
+        }
+      ]
+    },
+    "bundle": {
+      "type": "object",
+      "required": [
+        "formatVersion",
+        "uri",
+        "revision",
+        "records"
+      ],
+      "properties": {
+        "formatVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1
+        },
+        "uri": {
+          "type": "string",
+          "format": "at-uri"
+        },
+        "revision": {
+          "type": "string",
+          "description": "Content hash of the complete event projection, not just the Event record CID."
+        },
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "ref",
+            "ref": "events.openmusic.getEvent#event"
+          }
+        }
+      }
+    }
+  }
+}

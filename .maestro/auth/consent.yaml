@@ -1,0 +1,21 @@
+appId: ${APP_ID}
+---
+- tapOn:
+    text: Not Now
+    optional: true
+- extendedWaitUntil:
+    visible: Authorize
+    timeout: 30000
+- tapOn:
+    text: Not Now
+    optional: true
+- runFlow:
+    when: {platform: iOS}
+    commands:
+      - tapOn:
+          text: Authorize
+          below: By clicking
+- runFlow:
+    when: {platform: Android}
+    commands:
+      - tapOn: Authorize

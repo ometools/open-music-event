@@ -1,0 +1,279 @@
+import ComposableNotifications
+import ComposableNotificationsServer
+import Dependencies
+import Hummingbird
+import ATProtoStreams
+import OpenMusicEventRouting
+import ServiceLifecycle
+
+public enum OpenMusicEventAppViewServer {
+    public static func application(
+        configuration: AppViewConfiguration = .init(),
+        store providedStore: OpenMusicEventAppViewStore? = nil,
+        hydrantClient: HydrantClient? = nil,
+        geocodingClient providedGeocodingClient: CalendarEventGeocodingClient? = nil,
+        notificationRegistration: NotificationRegistrationServer? = nil,
+        notificationProvider: NotificationProviderClient? = nil,
+        sourceArtifactPublisher providedSourceArtifactPublisher: SourceArtifactPublisher? = nil,
+        tangledSourceUpdateProcessor providedTangledSourceUpdateProcessor:
+            TangledSourceUpdateProcessor? = nil
+    ) throws -> some ApplicationProtocol {
+        let store: OpenMusicEventAppViewStore?
+        if let providedStore {
+            store = providedStore
+        } else if let databaseURL = configuration.databaseURL {
+            store = try OpenMusicEventAppViewStore(
+                databaseURL: databaseURL,
+                webhookSecretProtection: configuration.webhookSecretProtection,
+                geocodingOverrides: configuration.geocodingOverrides,
+                communityCalendarExcludedPublishers: configuration.communityCalendarExcludedPublishers,
+                initiallyReady: configuration.ingestions.isEmpty
+            )
+        } else {
+            store = nil
+        }
+        if configuration.tangledWebhook != nil, store == nil {
+            throw OpenMusicEventAppViewServerError.tangledWebhookRequiresDatabase
+        }
+
+        var services: [any Service] = []
+        if let store { services.append(CalendarMapMaintenanceService(store: store)) }
+        if let store { services.append(CalendarPublisherProfileService(store: store)) }
+        if !configuration.ingestions.isEmpty {
+            guard let store else {
+                throw OpenMusicEventAppViewServerError.ingestionRequiresDatabase
+            }
+            services.append(
+                OpenMusicEventAppViewIngestion(
+                    store: store,
+                    configurations: configuration.ingestions,
+                    tangledWebhookConfiguration: configuration.tangledWebhook,
+                    client: hydrantClient ?? .hummingbird()
+                )
+            )
+        }
+        let liveGeocodingClient = configuration.geoapifyAPIKey.map {
+            CalendarEventGeocodingClient.geoapify(apiKey: $0)
+        }
+        let configuredGeocodingClient = liveGeocodingClient.map {
+            CalendarEventGeocodingClient.overrides(
+                configuration.geocodingOverrides,
+                fallback: $0
+            )
+        }
+        if let store,
+           let geocodingClient = providedGeocodingClient ?? configuredGeocodingClient {
+            services.append(
+                CalendarEventGeocodingService(
+                    store: store,
+                    client: geocodingClient
+                )
+            )
+        }
+        if let tangledWebhook = configuration.tangledWebhook, let store {
+            services.append(
+                TangledWorkspaceProposalService(
+                    processor: TangledWorkspaceProposalProcessor(
+                        configuration: tangledWebhook,
+                        store: store
+                    )
+                )
+            )
+            services.append(
+                WorkspaceProposalRenderService(
+                    processor: WorkspaceProposalRenderProcessor(
+                        configuration: tangledWebhook,
+                        store: store
+                    )
+                )
+            )
+        }
+
+        let notificationRegistration = try notificationRegistration
+            ?? withNotificationDependencies(configuration: configuration, store: store) {
+                try configuredNotificationRegistration(
+                    configuration: configuration,
+                    store: store
+                )
+            }
+        let tangledSourceUpdateProcessor: TangledSourceUpdateProcessor?
+        if let providedTangledSourceUpdateProcessor {
+            tangledSourceUpdateProcessor = providedTangledSourceUpdateProcessor
+        } else if configuration.tangledWebhook != nil, let store {
+            let sourceArtifactPublisher: SourceArtifactPublisher
+            if let providedSourceArtifactPublisher {
+                sourceArtifactPublisher = providedSourceArtifactPublisher
+            } else {
+                guard let sourceArtifactConfiguration = configuration.sourceArtifacts else {
+                    throw OpenMusicEventAppViewServerError
+                        .tangledWebhookRequiresSourceArtifactConfiguration
+                }
+                sourceArtifactPublisher = .s3(configuration: sourceArtifactConfiguration)
+            }
+            tangledSourceUpdateProcessor = withNotificationDependencies(
+                configuration: configuration,
+                store: store
+            ) {
+                .publishSourceAndNotifyChannels(
+                    store: store,
+                    artifactPublisher: sourceArtifactPublisher
+                )
+            }
+        } else {
+            tangledSourceUpdateProcessor = nil
+        }
+        if let notificationProvider {
+            guard let store else {
+                throw OpenMusicEventAppViewServerError.notificationDeliveryRequiresDatabase
+            }
+            guard let destinationProtection = configuration.notificationDestinationProtection else {
+                throw OpenMusicEventAppViewServerError
+                    .notificationDeliveryRequiresDestinationProtection
+            }
+            services.append(
+                NotificationOutboxService(
+                    database: store.database,
+                    destinationProtection: destinationProtection,
+                    legacyAPNSEnvironments: configuration.legacyAPNSEnvironments,
+                    provider: notificationProvider
+                )
+            )
+        }
+
+        return Application(
+            router: router(
+                configuration: configuration,
+                store: store,
+                notificationRegistration: notificationRegistration,
+                tangledSourceUpdateProcessor: tangledSourceUpdateProcessor
+            ),
+            configuration: configuration.hummingbirdConfiguration,
+            services: services
+        )
+    }
+
+    public static func router(
+        configuration: AppViewConfiguration = .init(),
+        store: OpenMusicEventAppViewStore? = nil,
+        notificationRegistration: NotificationRegistrationServer? = nil,
+        tangledSourceUpdateProcessor: TangledSourceUpdateProcessor? = nil
+    ) -> Router<BasicRequestContext> {
+        router(
+            context: BasicRequestContext.self,
+            configuration: configuration,
+            store: store,
+            notificationRegistration: notificationRegistration,
+            tangledSourceUpdateProcessor: tangledSourceUpdateProcessor
+        )
+    }
+
+    public static func router<Context: RequestContext>(
+        context: Context.Type,
+        configuration: AppViewConfiguration = .init(),
+        store: OpenMusicEventAppViewStore? = nil,
+        notificationRegistration: NotificationRegistrationServer? = nil,
+        tangledSourceUpdateProcessor: TangledSourceUpdateProcessor? = nil
+    ) -> Router<Context> {
+        let router = Router(context: context, options: [.autoGenerateHeadEndpoints])
+        installCalendarEventRoutes(
+            on: router,
+            store: store,
+            appViewHost: configuration.publicAppViewHost
+        )
+        installWorkspaceProposalRoutes(
+            on: router,
+            store: store,
+            tangledWebhookConfiguration: configuration.tangledWebhook
+        )
+        installNotificationRegistrationRoutes(
+            on: router,
+            registration: notificationRegistration
+        )
+        installTangledWebhookRoute(
+            on: router,
+            configuration: configuration.tangledWebhook,
+            store: store,
+            sourceUpdateProcessor: tangledSourceUpdateProcessor
+        )
+        installWebRoutes(
+            on: router,
+            oauthClient: configuration.oauthClient,
+            routeResolver: OpenMusicEventRouter(),
+            staticSiteFiles: StaticSiteFiles(rootDirectory: configuration.siteRoot),
+            wellKnownFiles: WellKnownFiles(rootDirectory: configuration.wellKnownRoot),
+            store: store,
+            webPDSHosts: configuration.webPDSHosts
+        )
+
+        return router
+    }
+
+    static func configuredNotificationRegistration(
+        configuration: AppViewConfiguration,
+        store: OpenMusicEventAppViewStore?
+    ) throws -> NotificationRegistrationServer? {
+        guard let notificationConfiguration = configuration.notificationRegistration else {
+            return nil
+        }
+        guard store != nil else {
+            throw OpenMusicEventAppViewServerError.notificationRegistrationRequiresDatabase
+        }
+        guard configuration.notificationDestinationProtection != nil else {
+            throw OpenMusicEventAppViewServerError
+                .notificationRegistrationRequiresDestinationProtection
+        }
+        let providerApplications = configuration.notificationProviders.map { providers in
+            NotificationRegistrationPolicy.ProviderApplications(
+                apns: providers.apns?.applications.mapValues {
+                    .init(
+                        environment: $0.environment,
+                        allowedEnvironments: $0.allowedEnvironments
+                    )
+                } ?? [:],
+                fcm: providers.fcm.map { Set($0.applications.keys) } ?? []
+            )
+        }
+
+        switch notificationConfiguration.authorization {
+        case .anonymous:
+            let notificationDatabase = NotificationDatabase()
+            return NotificationRegistrationServer(
+                database: notificationDatabase,
+                installationAuthorizer: .anonymous(database: notificationDatabase),
+                policy: NotificationRegistrationPolicy(
+                    allowedApplicationIDs: notificationConfiguration.allowedApplicationIDs,
+                    providerApplications: providerApplications
+                )
+            )
+        }
+    }
+
+    static func withNotificationDependencies<Value>(
+        configuration: AppViewConfiguration,
+        store: OpenMusicEventAppViewStore?,
+        operation: () throws -> Value
+    ) rethrows -> Value {
+        try withDependencies {
+            if let store {
+                $0.defaultDatabase = store.database
+            }
+            if let protection = configuration.notificationDestinationProtection {
+                $0.notificationDestinationProtectionClient = protection.client(
+                    legacyAPNSEnvironments: configuration.legacyAPNSEnvironments
+                )
+            }
+        } operation: {
+            try operation()
+        }
+    }
+}
+
+public enum OpenMusicEventAppViewServerError: Error, Equatable, Sendable {
+    case ingestionRequiresDatabase
+    case notificationDeliveryRequiresDatabase
+    case notificationDeliveryRequiresDestinationProtection
+    case notificationRegistrationRequiresDatabase
+    case notificationRegistrationRequiresDestinationProtection
+    case tangledWebhookRequiresDatabase
+    case tangledWebhookRequiresSourceArtifactConfiguration
+}

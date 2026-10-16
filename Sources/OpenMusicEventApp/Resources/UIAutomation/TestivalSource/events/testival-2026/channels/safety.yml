@@ -1,0 +1,5 @@
+name: Safety
+description: Time-sensitive safety information for attendees.
+sortIndex: 1
+defaultNotificationState: subscribed
+notificationsRequired: true

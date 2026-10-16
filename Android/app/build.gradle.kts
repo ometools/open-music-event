@@ -1,7 +1,9 @@
 import java.util.Properties
 
+val uiAutomation = System.getenv("OME_UI_AUTOMATION") == "1"
+
 plugins {
-    alias(libs.plugins.kotlin.android)
+    // AGP 9 provides built-in Kotlin support; the generated version catalog no longer declares kotlin.android.
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.android.application)
     id("skip-build-plugin")
@@ -10,15 +12,18 @@ plugins {
 skip {
 }
 
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget(libs.versions.jvm.get().toString())
+    }
+}
+
 android {
     namespace = group as String
     compileSdk = libs.versions.android.sdk.compile.get().toInt()
     compileOptions {
         sourceCompatibility = JavaVersion.toVersion(libs.versions.jvm.get())
         targetCompatibility = JavaVersion.toVersion(libs.versions.jvm.get())
-    }
-    kotlinOptions {
-        jvmTarget = libs.versions.jvm.get().toString()
     }
     packaging {
         jniLibs {
@@ -32,8 +37,14 @@ android {
     defaultConfig {
         minSdk = libs.versions.android.sdk.min.get().toInt()
         targetSdk = libs.versions.android.sdk.compile.get().toInt()
+        buildConfigField("boolean", "OME_UI_AUTOMATION", uiAutomation.toString())
+        val automationProfile = System.getenv("OME_UI_AUTOMATION_PROFILE") ?: ""
+        require(automationProfile in listOf("", "attendee", "authentication", "publication"))
+        buildConfigField("String", "OME_UI_AUTOMATION_PROFILE", "\"$automationProfile\"")
+        manifestPlaceholders["OME_OAUTH_CALLBACK_SCHEME"] =
+            if (automationProfile in listOf("authentication", "publication")) "test.ome-auth.metadata" else "app.openmusicevent"
         // skip.tools.skip-build-plugin will automatically use Skip.env properties for:
-        // applicationId = PRODUCT_BUNDLE_IDENTIFIER
+        // applicationId = ANDROID_APPLICATION_ID ?? PRODUCT_BUNDLE_IDENTIFIER
         // versionCode = CURRENT_PROJECT_VERSION
         // versionName = MARKETING_VERSION
     }
@@ -42,21 +53,36 @@ android {
         buildConfig = true
     }
 
-    lintOptions {
+    lint {
         disable.add("Instantiatable")
+        disable.add("MissingPermission")
+    }
+
+    dependenciesInfo {
+        // Disables dependency metadata when building APKs.
+        includeInApk = false
+        // Disables dependency metadata when building Android App Bundles.
+        includeInBundle = false
     }
 
     // default signing configuration tries to load from keystore.properties
+    // see: https://skip.dev/docs/deployment/#export-signing
     signingConfigs {
         val keystorePropertiesFile = file("keystore.properties")
-        if (keystorePropertiesFile.isFile) {
-            create("release") {
+        create("release") {
+            if (keystorePropertiesFile.isFile) {
                 val keystoreProperties = Properties()
                 keystoreProperties.load(keystorePropertiesFile.inputStream())
                 keyAlias = keystoreProperties.getProperty("keyAlias")
                 keyPassword = keystoreProperties.getProperty("keyPassword")
                 storeFile = file(keystoreProperties.getProperty("storeFile"))
                 storePassword = keystoreProperties.getProperty("storePassword")
+            } else {
+                // when there is no keystore.properties file, fall back to signing with debug config
+                keyAlias = signingConfigs.getByName("debug").keyAlias
+                keyPassword = signingConfigs.getByName("debug").keyPassword
+                storeFile = signingConfigs.getByName("debug").storeFile
+                storePassword = signingConfigs.getByName("debug").storePassword
             }
         }
     }
@@ -67,7 +93,7 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             isDebuggable = false // can be set to true for debugging release build, but needs to be false when uploading to store
-            proguardFiles(getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro")
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
 }

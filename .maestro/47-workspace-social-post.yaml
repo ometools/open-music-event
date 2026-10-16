@@ -1,0 +1,144 @@
+appId: ${APP_ID}
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible:
+      id: button.browse-event.3mrdbziccpcah
+    timeout: 30000
+- tapOn:
+    id: button.browse-event.3mrdbziccpcah
+- tapOn:
+    id: button.enter-event.3mrdbziccpcah
+- extendedWaitUntil:
+    visible:
+      id: view.schedule.at://did:web:example.com/events.openmusic.event/3mrdbziccpcah
+    timeout: 30000
+- tapOn: More
+- tapOn:
+    id: tab-feature.settings
+- tapOn: Enter Workspace
+- tapOn: More
+- extendedWaitUntil:
+    visible: Leave Workspace
+    timeout: 15000
+- runFlow: helpers/back.yaml
+- tapOn: Comms
+- extendedWaitUntil:
+    visible:
+      id: view.communications.at://did:web:example.com/events.openmusic.event/3mrdbziccpcah
+    timeout: 15000
+- tapOn:
+    id: button.channel.at://did:web:example.com/social.ome.category/3mrdbziccpcah
+- extendedWaitUntil:
+    visible:
+      id: view.channel-detail.at://did:web:example.com/social.ome.category/3mrdbziccpcah
+    timeout: 15000
+- tapOn: Channel Settings
+- tapOn: New Post
+- extendedWaitUntil:
+    visible: New Post
+    timeout: 15000
+- tapOn:
+    id: field.social-post.title
+- inputText: Workspace Record Post
+- tapOn: return
+- tapOn:
+    id: field.social-post.markdown
+- inputText: Read this post
+- tapOn: Preview
+- scrollUntilVisible:
+    element: Add Annotation
+    direction: DOWN
+    timeout: 20000
+- tapOn: Add Annotation
+- tapOn: Link
+- tapOn:
+    id: field.social-post.facet-text
+- inputText: post
+- tapOn: return
+- tapOn:
+    id: field.social-post.facet-target
+- inputText: https://example.com/post
+- tapOn: return
+- scrollUntilVisible:
+    element:
+      id: button.social-post.facet-done
+    direction: UP
+    centerElement: true
+    timeout: 20000
+- tapOn:
+    id: button.social-post.facet-done
+- assertNotVisible:
+    id: button.social-post.facet-done
+- swipe:
+    start: 90%, 80%
+    end: 90%, 25%
+    duration: 400
+- scrollUntilVisible:
+    element: Add Referenced Record
+    direction: DOWN
+    timeout: 20000
+- tapOn: Add Referenced Record
+- tapOn:
+    id: field.social-post.record-uri
+- inputText: at://did:web:example.com/social.ome.post/3mrdbziccpcah
+- tapOn: return
+- tapOn:
+    id: field.social-post.record-cid
+- inputText: bafyreihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku
+- tapOn: return
+- scrollUntilVisible:
+    element: Add Syndication
+    direction: DOWN
+    timeout: 20000
+- tapOn: Add Syndication
+- tapOn:
+    id: field.social-post.syndication-uri
+- inputText: at://did:plc:artist/app.bsky.feed.post/mirror
+- tapOn: return
+- tapOn:
+    id: field.social-post.syndication-cid
+- inputText: bafyreifiymllu4ykepilnm6j24fstwvp72rlbiojjkpmourcjyxykm7mzu
+- tapOn: return
+- scrollUntilVisible:
+    element:
+      id: button.social-post.syndication-done
+    direction: DOWN
+    timeout: 20000
+- tapOn:
+    id: button.social-post.syndication-done
+- assertNotVisible:
+    id: field.social-post.syndication-uri
+- tapOn: Save
+- extendedWaitUntil:
+    visible: Workspace Record Post
+    timeout: 15000
+- tapOn: Workspace Record Post
+- extendedWaitUntil:
+    visible: Syndicated Records
+    timeout: 15000
+- assertVisible: at://did:plc:artist/app.bsky.feed.post/mirror
+- tapOn: Post Actions
+- tapOn: Edit Post
+- extendedWaitUntil:
+    visible: Edit Post
+    timeout: 15000
+- scrollUntilVisible:
+    element: Syndication Actions
+    direction: DOWN
+    timeout: 20000
+- tapOn: Syndication Actions
+- tapOn: Delete
+- tapOn: Save
+- extendedWaitUntil:
+    notVisible: Syndicated Records
+    timeout: 15000
+- tapOn: Post Actions
+- tapOn: Delete Post
+- assertNotVisible: Edit Post
+- assertVisible: Delete Post
+- tapOn: Delete Post
+- extendedWaitUntil:
+    notVisible: Workspace Record Post
+    timeout: 15000

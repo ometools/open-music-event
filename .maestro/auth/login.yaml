@@ -1,0 +1,15 @@
+appId: ${APP_ID}
+---
+- runFlow:
+    when: {visible: {id: field.account.handle}}
+    commands:
+      - tapOn: Close
+- extendedWaitUntil:
+    visible: {id: menu.account}
+    timeout: 30000
+- tapOn: {id: menu.account}
+- tapOn: Sign In
+- runFlow: login-from-form.yaml
+- extendedWaitUntil:
+    visible: {id: menu.account, text: 'Signed in as @${HANDLE}'}
+    timeout: 30000

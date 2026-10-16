@@ -1,0 +1,41 @@
+appId: ${APP_ID}
+---
+# A clean automation install enters the canonical Testival event.
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible:
+      id: button.browse-event.3mrdbziccpcah
+    timeout: 30000
+- tapOn:
+    id: button.browse-event.3mrdbziccpcah
+- extendedWaitUntil:
+    visible:
+      id: button.enter-event.3mrdbziccpcah
+    timeout: 15000
+- tapOn:
+    id: button.enter-event.3mrdbziccpcah
+- extendedWaitUntil:
+    visible:
+      id: view.schedule.at://did:web:example.com/events.openmusic.event/3mrdbziccpcah
+    timeout: 30000
+- assertVisible:
+    id: button.performance.at://did:web:example.com/events.openmusic.programItem/3mrdbziccpcrt
+
+# The installed record and its related records survive a process relaunch.
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: view.schedule.at://did:web:example.com/events.openmusic.event/3mrdbziccpcah
+    timeout: 30000
+- assertVisible:
+    id: button.performance.at://did:web:example.com/events.openmusic.programItem/3mrdbziccpcrt
+- tapOn: Comms
+- extendedWaitUntil:
+    visible:
+      id: button.channel.at://did:web:example.com/social.ome.category/3mrdbziccpcah
+    timeout: 15000
+- tapOn:
+    id: button.channel.at://did:web:example.com/social.ome.category/3mrdbziccpcah
+- assertVisible: Welcome to Testival

@@ -1,0 +1,252 @@
+import CustomDump
+import Foundation
+import ATProtoTypes
+@testable import OpenMusicEventLexicon
+import Testing
+
+@Suite
+struct EventPlaceTests {
+    typealias Stage = OpenMusicEventLexicon.Stage
+    typealias Event = OpenMusicEventLexicon.Event
+
+    let eventURI = ATProto.URI("at://did:plc:wickedwoods/events.openmusic.event/3mrdbziccpcah")!
+    let placeURI = ATProto.URI("at://did:plc:wickedwoods/events.openmusic.eventPlace/3mrdbziccpcai")!
+    let stageURI = ATProto.URI("at://did:plc:stageowner/events.openmusic.stage/3mrdbziccpcaj")!
+    let createdAt: ATProto.DateTime = "2026-09-21T12:00:00Z"
+
+    @Test
+    func `a persistent stage has no edition or event presentation requirements`() throws {
+        let stage = try Stage(id: stageURI, cid: "observed-revision", name: "The Hollow", createdAt: createdAt)
+        expectNoDifference(try stage.encodeLexicon(), .object([
+            "$type": "events.openmusic.stage", "name": "The Hollow", "createdAt": .string(createdAt.rawValue),
+        ]))
+        expectNoDifference(
+            try Stage.decodeLexicon(stage.encodeLexicon(), metadata: .init(uri: stageURI, cid: "observed-revision")),
+            stage
+        )
+    }
+
+    @Test
+    func `an organizer can publish a named place before its use or coordinates are known`() throws {
+        let place = try EventPlace(id: placeURI, event: eventURI, name: "Meeting point", createdAt: createdAt)
+        try place.validateReferences()
+        expectNoDifference(try place.encodeLexicon(), .object([
+            "$type": "events.openmusic.eventPlace", "event": .string(eventURI.description),
+            "name": "Meeting point", "createdAt": .string(createdAt.rawValue),
+        ]))
+        #expect(place.kind == nil)
+        #expect(place.locators == nil)
+    }
+
+    @Test(arguments: ["event", "name", "createdAt"])
+    func `required place fields cannot disappear`(_ field: String) throws {
+        var payload = try #require(EventPlace(id: placeURI, event: eventURI, name: "Gate", createdAt: createdAt).encodeLexicon().object)
+        payload.removeValue(forKey: field)
+        #expect(throws: (any Error).self) { try EventPlace.decodeLexicon(.object(payload), metadata: .init(uri: placeURI)) }
+    }
+
+    @Test(arguments: ["description", "locators", "links", "media", "kind"])
+    func `optional place fields accept null and encode absence`(_ field: String) throws {
+        let place = try EventPlace(id: placeURI, event: eventURI, name: "Gate", createdAt: createdAt)
+        var payload = try #require(place.encodeLexicon().object)
+        payload[field] = .null
+        let decoded = try EventPlace.decodeLexicon(.object(payload), metadata: .init(uri: placeURI))
+        expectNoDifference(decoded, place)
+        expectNoDifference(try decoded.encodeLexicon(), try place.encodeLexicon())
+    }
+
+    @Test
+    func `linking and unlinking persistent identity preserves the place and its copied presentation`() throws {
+        var place = try EventPlace(
+            id: placeURI, cid: "place-revision", event: eventURI, name: "The Hollow — 2026",
+            createdAt: createdAt, description: "Enter from the north path",
+            kind: .known(.stage(.init(color: OME.Color(rawValue: 0x336699))))
+        )
+        let original = place
+        // The stage already renders before a persistent profile has been selected.
+        expectNoDifference(try place.encodeLexicon().object?["kind"], .object([
+            "$type": "events.openmusic.defs#eventPlaceStage", "color": .integer(0x336699),
+        ]))
+
+        // Selecting continuity changes only the nested reference.
+        guard case var .known(.stage(use)) = place.kind else {
+            Issue.record("Expected stage use")
+            return
+        }
+        use.stage = stageURI
+        place.kind = .known(.stage(use))
+        try place.validateReferences()
+        expectNoDifference(place.id, original.id)
+        expectNoDifference(place.name, original.name)
+        expectNoDifference(place.cid, original.cid)
+        expectNoDifference(try place.encodeLexicon().object?["kind"], .object([
+            "$type": "events.openmusic.defs#eventPlaceStage", "stage": .string(stageURI.description),
+            "color": .integer(0x336699),
+        ]))
+
+        use.stage = nil
+        place.kind = .known(.stage(use))
+        expectNoDifference(place, original)
+    }
+
+    @Test
+    func `an event stage keeps its schedule grouping and fallback presentation`() throws {
+        let place = try EventPlace(
+            id: placeURI,
+            event: eventURI,
+            name: "Meadow",
+            createdAt: createdAt,
+            kind: .known(.stage(.init(
+                color: OME.Color(rawValue: 0x336699),
+                category: "workshop",
+                sortIndex: 7,
+                icon: .init(rawValue: "sparkles"),
+                shortLabel: "MD"
+            )))
+        )
+        try place.validateReferences()
+        let encoded = try place.encodeLexicon()
+        expectNoDifference(encoded.object?["kind"], .object([
+            "$type": "events.openmusic.defs#eventPlaceStage",
+            "color": .integer(0x336699),
+            "category": "workshop",
+            "sortIndex": .integer(7),
+            "icon": "sparkles",
+            "shortLabel": "MD",
+        ]))
+        expectNoDifference(
+            try EventPlace.decodeLexicon(encoded, metadata: .init(uri: placeURI)),
+            place
+        )
+    }
+
+    @Test
+    func `a stage keeps an ordered lineup when contributors have no scheduled item`() throws {
+        let first = try #require(ATProto.URI(
+            "at://did:plc:wickedwoods/events.openmusic.contributor/3mrdbziccpcak"
+        ))
+        let second = try #require(ATProto.URI(
+            "at://did:plc:wickedwoods/events.openmusic.contributor/3mrdbziccpcam"
+        ))
+        var place = try EventPlace(
+            id: placeURI,
+            event: eventURI,
+            name: "The Hollow",
+            createdAt: createdAt,
+            kind: .known(.stage(.init(lineup: [first, second])))
+        )
+        try place.validateReferences()
+        let encoded = try place.encodeLexicon()
+        expectNoDifference(
+            encoded.object?["kind"]?.object?["lineup"],
+            .array([.string(first.description), .string(second.description)])
+        )
+        expectNoDifference(
+            try EventPlace.decodeLexicon(encoded, metadata: .init(uri: placeURI)),
+            place
+        )
+
+        place.kind = .known(.stage(.init(lineup: [first, first])))
+        #expect(throws: ValidationError.self) { try place.validateReferences() }
+
+        let outsideEvent = try #require(ATProto.URI(
+            "at://did:plc:other/events.openmusic.contributor/3mrdbziccpcan"
+        ))
+        place.kind = .known(.stage(.init(lineup: [outsideEvent])))
+        #expect(throws: ValidationError.self) { try place.validateReferences() }
+    }
+
+    @Test(arguments: ["entrance", "camping", "info"])
+    func `nonstage places need no persistent entity`(_ kind: String) throws {
+        let placeKind: EventPlace.Kind = switch kind {
+        case "entrance": .entrance(.init())
+        case "camping": .camping(.init())
+        default: .info(.init())
+        }
+        let place = try EventPlace(id: placeURI, event: eventURI, name: kind, createdAt: createdAt, kind: .known(placeKind))
+        try place.validateReferences()
+        let json = try place.encodeLexicon()
+        let suffix = kind.prefix(1).uppercased() + kind.dropFirst()
+        expectNoDifference(json.object?["kind"], .object(["$type": .string("events.openmusic.defs#eventPlace" + suffix)]))
+        expectNoDifference(try EventPlace.decodeLexicon(json, metadata: .init(uri: placeURI)), place)
+    }
+
+    @Test
+    func `verified ingestion rejects foreign event ownership without making decoding depend on a cache`() throws {
+        var payload = try #require(EventPlace(id: placeURI, event: eventURI, name: "Gate", createdAt: createdAt).encodeLexicon().object)
+        payload["event"] = "at://did:plc:anotherorganizer/events.openmusic.event/3mrdbziccpcah"
+        let decoded = try EventPlace.decodeLexicon(.object(payload), metadata: .init(uri: placeURI))
+        // Decode preserves the declared data. The verified ingestion/authoring boundary rejects its ownership.
+        #expect(throws: ValidationError.self) { try decoded.validateReferences() }
+
+        let valid = try EventPlace(id: placeURI, event: eventURI, name: "Gate", createdAt: createdAt)
+        try valid.validateReferences() // No Event or Stage fetch is needed.
+    }
+
+    @Test(arguments: [
+        "at://did:plc:wickedwoods/events.openmusic.stage/3mrdbziccpcah",
+        "at://wickedwoods.example/events.openmusic.event/3mrdbziccpcah",
+        "at://did:plc:wickedwoods/events.openmusic.event",
+    ])
+    func `ingestion requires a complete event record address`(_ address: String) throws {
+        let place = try EventPlace(
+            id: placeURI, event: #require(ATProto.URI(address)), name: "Gate", createdAt: createdAt
+        )
+        #expect(throws: ValidationError.self) { try place.validateReferences() }
+    }
+
+    @Test
+    func `a continuity reference must address a persistent stage`() throws {
+        let place = try EventPlace(
+            id: placeURI, event: eventURI, name: "Stage", createdAt: createdAt,
+            kind: .known(.stage(.init(stage: eventURI)))
+        )
+        #expect(throws: ValidationError.self) { try place.validateReferences() }
+    }
+
+    @Test(arguments: [
+        #"{"$type":"events.openmusic.defs#eventPlaceStage","color":16777216}"#,
+        #"{"$type":"events.openmusic.defs#eventPlaceStage","stage":42}"#,
+        #"{"color":42}"#,
+    ])
+    func `malformed known kinds cannot become unknown variants`(_ kind: String) throws {
+        var payload = try #require(EventPlace(id: placeURI, event: eventURI, name: "Stage", createdAt: createdAt).encodeLexicon().object)
+        payload["kind"] = try JSONDecoder().decode(Lexicon.JSONValue.self, from: Data(kind.utf8))
+        #expect(throws: (any Error).self) { try EventPlace.decodeLexicon(.object(payload), metadata: .init(uri: placeURI)) }
+    }
+
+    @Test
+    func `export roots include both records and the stage use definition`() throws {
+        let documents = try LexiconExporter.documents(for: [
+            Event.self, Stage.self, EventPlace.self, Program.self,
+            OpenMusicEventLexicon.Schedule.self, ProgramItem.self, OME.Color.self,
+        ])
+        expectNoDifference(Set(documents.map(\.id.rawValue)), [
+            "events.openmusic.event", "events.openmusic.stage", "events.openmusic.eventPlace",
+            "events.openmusic.program", "events.openmusic.schedule", "events.openmusic.programItem",
+            "events.openmusic.defs",
+            "community.lexicon.location.address", "community.lexicon.location.geo",
+            "community.lexicon.location.fsq", "community.lexicon.location.hthree",
+        ])
+        let place = try #require(documents.first { $0.id.rawValue == "events.openmusic.eventPlace" })
+        let record = try #require(Lexicon.JSONValue(encoding: place).object?["defs"]?.object?["main"]?.object?["record"]?.object)
+        expectNoDifference(record["required"], ["event", "name", "createdAt"])
+        let properties = try #require(record["properties"]?.object)
+        #expect(properties["id"] == nil && properties["cid"] == nil)
+        #expect(properties["category"] == nil && properties["sortIndex"] == nil && properties["color"] == nil)
+        let kind = try #require(properties["kind"]?.object)
+        expectNoDifference(kind["type"], "union")
+        // An omitted closed flag is an open union under the Lexicon specification.
+        #expect(kind["closed"] == nil || kind["closed"] == .bool(false))
+        let defs = try #require(documents.first { $0.id.rawValue == "events.openmusic.defs" })
+        let definitions = try #require(Lexicon.JSONValue(encoding: defs).object?["defs"]?.object)
+        let stageUse = try #require(definitions["eventPlaceStage"]?.object)
+        expectNoDifference(
+            Set(try #require(stageUse["properties"]?.object).keys),
+            ["stage", "color", "category", "sortIndex", "icon", "shortLabel", "lineup"]
+        )
+        #expect(definitions["stage"] == nil)
+    }
+
+}
+

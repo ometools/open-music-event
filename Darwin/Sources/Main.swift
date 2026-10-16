@@ -1,15 +1,47 @@
+import Foundation
 import SwiftUI
-import OpenMusicEvent
+import OpenMusicEventApp
+import Dependencies
+
+#if canImport(UIKit)
+import OSLog
+import UIKit
+import UserNotifications
+
+private let notificationLogger = Logger(
+    subsystem: "app.openmusicevent",
+    category: "notifications"
+)
+#endif
+
+private typealias AppRootView = OpenMusicEventApplicationEntryView
+private typealias AppDelegate = OpenMusicEventAppDelegate
 
 /// The entry point to the app simply loads the App implementation from SPM module.
 @main struct AppMain: App {
     @AppDelegateAdaptor(AppMainDelegate.self) var appDelegate
     @Environment(\.scenePhase) private var scenePhase
 
+    init() {
+        let uiAutomationValue = Bundle.main.object(
+            forInfoDictionaryKey: "OMEUIAutomation"
+        )
+        let uiAutomation = (uiAutomationValue as? Bool) == true
+            || (uiAutomationValue as? String) == "YES"
+        try! prepareDependencies {
+            try OME.preparePersistedServiceEnvironmentDependencies(
+                &$0,
+                uiAutomation: .buildProfile(
+                    Bundle.main.object(forInfoDictionaryKey: "OMEUIAutomationProfile") as? String ?? "",
+                    legacyAttendee: uiAutomation
+                )
+            )
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
-//            Text("Hello World!")
-            OpenMusicEventRootView()
+            AppRootView()
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
             switch newPhase {
@@ -26,7 +58,6 @@ import OpenMusicEvent
     }
 }
 
-typealias AppDelegate = OpenMusicEventAppDelegate
 #if canImport(UIKit)
 typealias AppDelegateAdaptor = UIApplicationDelegateAdaptor
 typealias AppMainDelegateBase = UIApplicationDelegate
@@ -37,13 +68,18 @@ typealias AppMainDelegateBase = NSApplicationDelegate
 typealias AppType = NSApplication
 #endif
 
-@MainActor
-class AppMainDelegate: NSObject, AppMainDelegateBase {
+@MainActor final class AppMainDelegate: NSObject, AppMainDelegateBase {
     let application = AppType.shared
 
     #if canImport(UIKit)
     func application(_ application: UIApplication, willFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
-        AppDelegate.shared.onStart()
+        UNUserNotificationCenter.current().delegate = self
+        AppDelegate.shared.onInit()
+        return true
+    }
+
+    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
+        AppDelegate.shared.onLaunch()
         return true
     }
 
@@ -54,9 +90,48 @@ class AppMainDelegate: NSObject, AppMainDelegateBase {
     func applicationDidReceiveMemoryWarning(_ application: UIApplication) {
         AppDelegate.shared.onLowMemory()
     }
+
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        AppDelegate.shared.onRegisteredForRemoteNotifications(deviceToken: deviceToken)
+    }
+
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: any Error) {
+        AppDelegate.shared.onRemoteNotificationRegistrationFailed(
+            errorDescription: String(describing: error)
+        )
+    }
+
+    func application(
+        _ application: UIApplication,
+        didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+        fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+    ) {
+        do {
+            let json = try notificationJSON(userInfo)
+            Task { @MainActor in
+                notificationLogger.notice(
+                    "Background notification processing started before fetch completion"
+                )
+                let handled = await AppDelegate.shared.onRemoteNotificationAndWait(json: json)
+                notificationLogger.notice(
+                    "Background notification processing finished before fetch completion; delivered: \(handled, privacy: .public)"
+                )
+                completionHandler(handled ? .newData : .failed)
+            }
+        } catch {
+            notificationLogger.error(
+                "Could not preserve delivered notification JSON: \(String(describing: error), privacy: .public)"
+            )
+            completionHandler(.failed)
+        }
+    }
     #elseif canImport(AppKit)
     func applicationWillFinishLaunching(_ notification: Notification) {
-        AppDelegate.shared.onStart()
+        AppDelegate.shared.onInit()
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        AppDelegate.shared.onLaunch()
     }
 
     func applicationWillTerminate(_ application: Notification) {
@@ -65,3 +140,53 @@ class AppMainDelegate: NSObject, AppMainDelegateBase {
     #endif
 
 }
+
+#if canImport(UIKit)
+extension AppMainDelegate: @MainActor UNUserNotificationCenterDelegate {
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (
+            UNNotificationPresentationOptions
+        ) -> Void
+    ) {
+        do {
+            AppDelegate.shared.onForegroundNotification(
+                json: try notificationJSON(notification.request.content.userInfo)
+            )
+        } catch {
+            notificationLogger.error(
+                "Could not preserve foreground notification JSON: \(String(describing: error), privacy: .public)"
+            )
+        }
+        completionHandler([.banner, .list, .sound])
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        do {
+            let json = try notificationJSON(response.notification.request.content.userInfo)
+            Task { @MainActor in
+                await AppDelegate.shared.onNotificationInteractionAndWait(
+                    json: json,
+                    actionIdentifier: response.actionIdentifier
+                )
+                completionHandler()
+            }
+        } catch {
+            notificationLogger.error(
+                "Could not preserve notification interaction JSON: \(String(describing: error), privacy: .public)"
+            )
+            completionHandler()
+        }
+    }
+}
+
+private func notificationJSON(_ userInfo: [AnyHashable: Any]) throws -> String {
+    let data = try JSONSerialization.data(withJSONObject: userInfo)
+    return String(decoding: data, as: UTF8.self)
+}
+#endif

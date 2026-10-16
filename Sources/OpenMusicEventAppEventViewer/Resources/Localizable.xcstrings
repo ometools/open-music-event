@@ -1,0 +1,1577 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "%@ %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ %2$@"
+          }
+        }
+      }
+    },
+    "%lld" : {
+
+    },
+    "%lld %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld %2$@"
+          }
+        }
+      }
+    },
+    "%lld changes" : {
+
+    },
+    "1 change" : {
+
+    },
+    "A profile linked to an event place cannot be deleted." : {
+
+    },
+    "About" : {
+
+    },
+    "About OpenMusicEvent" : {
+
+    },
+    "Account" : {
+
+    },
+    "Actions" : {
+
+    },
+    "Add" : {
+
+    },
+    "Add %@ reaction" : {
+
+    },
+    "Add a program to organize performances and places." : {
+
+    },
+    "Add Annotation" : {
+
+    },
+    "Add Channel" : {
+
+    },
+    "Add Contact" : {
+
+    },
+    "Add Contributor" : {
+
+    },
+    "Add Event Place" : {
+
+    },
+    "Add Link" : {
+
+    },
+    "Add Link Card" : {
+
+    },
+    "Add Location" : {
+
+    },
+    "Add Locator" : {
+
+    },
+    "Add Media" : {
+
+    },
+    "Add Performance" : {
+
+    },
+    "Add Place" : {
+
+    },
+    "Add Posters" : {
+
+    },
+    "Add Program" : {
+
+    },
+    "Add Referenced Record" : {
+
+    },
+    "Add Relationship" : {
+
+    },
+    "Add Reporting Link" : {
+
+    },
+    "Add Role" : {
+
+    },
+    "Add Schedule" : {
+
+    },
+    "Add Style" : {
+
+    },
+    "Add Syndication" : {
+
+    },
+    "Add to a new schedule" : {
+
+    },
+    "Added" : {
+
+    },
+    "Additional Media" : {
+
+    },
+    "Address" : {
+
+    },
+    "After" : {
+
+    },
+    "After: Not set" : {
+
+    },
+    "Allow" : {
+
+    },
+    "Allow Critical Alerts" : {
+
+    },
+    "Allow Notifications" : {
+
+    },
+    "Alt Text" : {
+
+    },
+    "Altitude" : {
+
+    },
+    "Always Deliver Immediately" : {
+
+    },
+    "An open-source app for discovering, following, and contributing to music events." : {
+
+    },
+    "Annotation Actions" : {
+
+    },
+    "Any" : {
+
+    },
+    "Appearance" : {
+
+    },
+    "Artist Set" : {
+
+    },
+    "Assign festival day" : {
+
+    },
+    "AT Protocol Record" : {
+
+    },
+    "AT Protocol records, public feedback, and source proposals become public only when you explicitly submit them. Local drafts and saved schedules are not published automatically." : {
+
+    },
+    "At the stages" : {
+
+    },
+    "ATProto Identity" : {
+
+    },
+    "Attached content" : {
+
+    },
+    "Attributed by openmusicevent.app" : {
+
+    },
+    "Auto" : {
+
+    },
+    "Before" : {
+
+    },
+    "Bio" : {
+
+    },
+    "Browse Stage Profiles" : {
+
+    },
+    "Camping" : {
+
+    },
+    "Can merge changes" : {
+
+    },
+    "Can propose changes" : {
+
+    },
+    "Cancel" : {
+
+    },
+    "Category" : {
+
+    },
+    "Change Account" : {
+
+    },
+    "Change Stage Profile" : {
+
+    },
+    "Changes could not be loaded" : {
+
+    },
+    "Changes could not be reset." : {
+
+    },
+    "Changes not published" : {
+
+    },
+    "Channel" : {
+
+    },
+    "Channel Actions" : {
+
+    },
+    "Channel Settings" : {
+
+    },
+    "Channels" : {
+
+    },
+    "Check back for times and stages." : {
+
+    },
+    "Choose a day" : {
+
+    },
+    "Choose another emoji reaction" : {
+
+    },
+    "Choose Files" : {
+
+    },
+    "Choose Image" : {
+
+    },
+    "Choose Photos" : {
+
+    },
+    "City or locality" : {
+
+    },
+    "Clear" : {
+
+    },
+    "Clear Dates" : {
+
+    },
+    "Clear Focus" : {
+
+    },
+    "Close" : {
+
+    },
+    "Collaborator" : {
+
+    },
+    "Common roles" : {
+
+    },
+    "Comms" : {
+
+    },
+    "Contact" : {
+
+    },
+    "Contact Info" : {
+
+    },
+    "Contact Numbers" : {
+
+    },
+    "Contributor" : {
+
+    },
+    "Contributor Actions" : {
+
+    },
+    "Contributor unavailable" : {
+
+    },
+    "Contributors" : {
+
+    },
+    "Coordinates" : {
+
+    },
+    "Country code" : {
+
+    },
+    "Create a schedule for the performances you do not want to miss." : {
+
+    },
+    "Create Event" : {
+
+    },
+    "Create/reuse contributor" : {
+
+    },
+    "Credit Actions" : {
+
+    },
+    "Credit Name" : {
+
+    },
+    "Critical Alerts" : {
+
+    },
+    "Critical Alerts appear on the Lock Screen and play a sound even if a Focus is on or iPhone is muted." : {
+
+    },
+    "Current DID" : {
+
+    },
+    "Custom Mode" : {
+
+    },
+    "Custom Role" : {
+
+    },
+    "Custom Status" : {
+
+    },
+    "Date" : {
+
+    },
+    "Dates" : {
+
+    },
+    "Day" : {
+
+    },
+    "Default Style" : {
+
+    },
+    "Default subscription" : {
+
+    },
+    "Delete" : {
+
+    },
+    "Delete Channel" : {
+
+    },
+    "Delete Channel?" : {
+
+    },
+    "Delete Contact" : {
+
+    },
+    "Delete Performance" : {
+
+    },
+    "Delete Performance?" : {
+
+    },
+    "Delete Post" : {
+
+    },
+    "Delete Post?" : {
+
+    },
+    "Delete Poster" : {
+
+    },
+    "Delete Poster?" : {
+
+    },
+    "Delete Program" : {
+
+    },
+    "Delete Program?" : {
+
+    },
+    "Delete Relationship" : {
+
+    },
+    "Delete Reporting Link" : {
+
+    },
+    "Delete Schedule" : {
+
+    },
+    "Delete Schedule?" : {
+
+    },
+    "Delete Stage Profile" : {
+
+    },
+    "Delete this post?" : {
+
+    },
+    "Delete this relationship?" : {
+
+    },
+    "Delete this stage profile?" : {
+
+    },
+    "Deleted" : {
+
+    },
+    "Delivery" : {
+
+    },
+    "Description" : {
+
+    },
+    "Details" : {
+
+    },
+    "Developer profile unavailable" : {
+
+    },
+    "Discard local changes?" : {
+
+    },
+    "Don't Notify Me For New Posts" : {
+
+    },
+    "Done" : {
+
+    },
+    "Edit" : {
+
+    },
+    "Edit Channel" : {
+
+    },
+    "Edit Contact Info" : {
+
+    },
+    "Edit content in the app, then review your changes here before publishing." : {
+
+    },
+    "Edit Event Info" : {
+
+    },
+    "Edit Image" : {
+
+    },
+    "Edit Link" : {
+
+    },
+    "Edit Location" : {
+
+    },
+    "Edit Locator" : {
+
+    },
+    "Edit Performance" : {
+
+    },
+    "Edit Post" : {
+
+    },
+    "Edit Program" : {
+
+    },
+    "Edit Schedule" : {
+
+    },
+    "Edit Site Map" : {
+
+    },
+    "Edit Stage Profile" : {
+
+    },
+    "Edit Style" : {
+
+    },
+    "Edited" : {
+
+    },
+    "Editor" : {
+
+    },
+    "Embed" : {
+
+    },
+    "Emergency" : {
+
+    },
+    "Emergency alerts use the operating system's urgent presentation and expire after %lld minutes." : {
+
+    },
+    "Emergency updates can alert you even when notifications are silenced." : {
+
+    },
+    "Emoji" : {
+
+    },
+    "Emoji reaction" : {
+
+    },
+    "Ends" : {
+
+    },
+    "Enter a complete DID-authored record URI and CID." : {
+
+    },
+    "Enter one emoji." : {
+
+    },
+    "Enter Workspace" : {
+      "comment" : "Button that enters the event editing workspace"
+    },
+    "Entrance" : {
+
+    },
+    "Error Handling" : {
+
+    },
+    "Event" : {
+
+    },
+    "Event Name" : {
+
+    },
+    "Event Place" : {
+
+    },
+    "Event Settings" : {
+
+    },
+    "Exact match" : {
+
+    },
+    "Exact time" : {
+
+    },
+    "Exit" : {
+
+    },
+    "Expected" : {
+
+    },
+    "Explore" : {
+
+    },
+    "External Link" : {
+
+    },
+    "External Media" : {
+
+    },
+    "First style" : {
+
+    },
+    "Focus" : {
+
+    },
+    "Foursquare Place" : {
+
+    },
+    "Foursquare place ID" : {
+
+    },
+    "From Other Event" : {
+
+    },
+    "H3 cell" : {
+
+    },
+    "H3 Cell" : {
+
+    },
+    "Has recordings" : {
+
+    },
+    "Icon" : {
+
+    },
+    "Icon can stand alone" : {
+
+    },
+    "Icon name" : {
+
+    },
+    "Icon Name" : {
+
+    },
+    "Image" : {
+
+    },
+    "Image Actions" : {
+
+    },
+    "Image Info" : {
+
+    },
+    "Image URL" : {
+
+    },
+    "Images" : {
+
+    },
+    "Information" : {
+
+    },
+    "Keep Editing" : {
+
+    },
+    "Keep Site Map" : {
+
+    },
+    "Kind" : {
+
+    },
+    "Latitude" : {
+
+    },
+    "Leave and Discard Changes" : {
+      "comment" : "Destructive confirmation that leaves the workspace and deletes local edits"
+    },
+    "Leave Workspace" : {
+      "comment" : "Button that leaves the event editing workspace"
+    },
+    "Leaving the workspace restores this organizer’s records from the local reference copy and discards your edits on this device." : {
+      "comment" : "Warning shown before leaving a workspace with unpublished edits"
+    },
+    "Lineup" : {
+
+    },
+    "Link" : {
+
+    },
+    "Link Actions" : {
+
+    },
+    "Link Card" : {
+
+    },
+    "Link identity only" : {
+
+    },
+    "Link Title" : {
+
+    },
+    "Linked" : {
+
+    },
+    "Linked account" : {
+
+    },
+    "Linked Stage" : {
+
+    },
+    "Links" : {
+
+    },
+    "Loaded Site Map" : {
+
+    },
+    "Loading contributors…" : {
+
+    },
+    "Loading post" : {
+
+    },
+    "Local events, saved attendee state, preferences, caches, and unpublished workspaces stay on this device. Account credentials use platform-protected storage." : {
+
+    },
+    "Location" : {
+
+    },
+    "Location Actions" : {
+
+    },
+    "Locations" : {
+
+    },
+    "Locator Actions" : {
+
+    },
+    "Locators" : {
+
+    },
+    "Longitude" : {
+
+    },
+    "Look up exact account" : {
+
+    },
+    "Look up exact handle or DID" : {
+
+    },
+    "Manage Critical Alerts" : {
+      "comment" : "Primary button for opening system settings to manage Critical Alerts"
+    },
+    "Manage Notifications" : {
+      "comment" : "Primary button for opening system settings to manage notifications"
+    },
+    "Manage Schedules" : {
+
+    },
+    "Map Style" : {
+      "comment" : "Accessibility label for the site map style menu"
+    },
+    "Mark All as Read" : {
+
+    },
+    "Mark All as Unread" : {
+
+    },
+    "Mark as Read" : {
+
+    },
+    "Mark as Unread" : {
+
+    },
+    "Markdown is saved as entered. Use Preview to see the published post." : {
+
+    },
+    "Media" : {
+
+    },
+    "Media Actions" : {
+
+    },
+    "Media Kind" : {
+
+    },
+    "Mode" : {
+
+    },
+    "Move Down" : {
+
+    },
+    "Move or delete this channel's posts before deleting it." : {
+
+    },
+    "Move or delete this program's items first." : {
+
+    },
+    "Move Up" : {
+
+    },
+    "Name" : {
+
+    },
+    "New Channel" : {
+
+    },
+    "New Post" : {
+
+    },
+    "New Program" : {
+
+    },
+    "New Schedule" : {
+
+    },
+    "New Stage Profile" : {
+
+    },
+    "Next day" : {
+
+    },
+    "No communication channels have been added to this event yet." : {
+
+    },
+    "No contact information has been added to this event yet." : {
+
+    },
+    "No contributors have been added to this event yet." : {
+
+    },
+    "No contributors match your search." : {
+
+    },
+    "No developer profile is currently published." : {
+
+    },
+    "No Events" : {
+
+    },
+    "No locations have been added to this event yet." : {
+
+    },
+    "No notification settings are available for this event yet." : {
+
+    },
+    "No persistent stage profiles available" : {
+
+    },
+    "No Personal Schedules" : {
+
+    },
+    "No places have been added to this event yet." : {
+
+    },
+    "No places match your search." : {
+
+    },
+    "No posters have been added to this event yet." : {
+
+    },
+    "No Programs" : {
+
+    },
+    "No relationships have been added to this event yet." : {
+
+    },
+    "No Results" : {
+
+    },
+    "No role" : {
+
+    },
+    "No site map has been added to this event yet." : {
+
+    },
+    "Non-emergency" : {
+
+    },
+    "Non-Emergency" : {
+
+    },
+    "None" : {
+
+    },
+    "Not expected" : {
+
+    },
+    "Notification" : {
+
+    },
+    "Notifications" : {
+
+    },
+    "Notifications are required" : {
+
+    },
+    "Notifications are required for this channel." : {
+
+    },
+    "Notifications enabled" : {
+
+    },
+    "Notifications required" : {
+
+    },
+    "Notifications Required" : {
+
+    },
+    "Notifications: %@" : {
+
+    },
+    "Notify Me For New Posts" : {
+
+    },
+    "Now" : {
+
+    },
+    "Occurrence %lld" : {
+
+    },
+    "Off" : {
+      "comment" : "System notification or Critical Alert permission status"
+    },
+    "On" : {
+      "comment" : "System notification or Critical Alert permission status"
+    },
+    "Open in Apple Maps" : {
+
+    },
+    "Open Music Event could not request notification permission." : {
+
+    },
+    "Open Notification Settings" : {
+
+    },
+    "OpenMusicEvent" : {
+
+    },
+    "OpenMusicEvent and the Atmosphere" : {
+
+    },
+    "OpenMusicEvent asks for an account only when an action needs your identity, such as publishing, collaborating, or participating in public feedback." : {
+
+    },
+    "OpenMusicEvent is open source. You can inspect the app's source code from the link below." : {
+
+    },
+    "OpenMusicEvent uses the open AT Protocol. Your account is a portable identity that can work across compatible apps, while public event information remains available without signing in." : {
+
+    },
+    "Opens %@ in a browser." : {
+
+    },
+    "Optionally pin an exact version of a record published by the linked account." : {
+
+    },
+    "Organizer" : {
+
+    },
+    "Other (preserved)" : {
+
+    },
+    "Other reaction" : {
+
+    },
+    "Other Reaction" : {
+
+    },
+    "Other: %@" : {
+
+    },
+    "People can choose whether to receive notifications from this channel." : {
+
+    },
+    "People cannot turn off notifications for this channel." : {
+
+    },
+    "Performance" : {
+
+    },
+    "Performance Actions" : {
+
+    },
+    "Performance unavailable" : {
+
+    },
+    "performer" : {
+
+    },
+    "Performer" : {
+
+    },
+    "Persistent Stage" : {
+
+    },
+    "Personal schedules" : {
+
+    },
+    "Personal Schedules" : {
+
+    },
+    "Phone, email, or URL" : {
+
+    },
+    "Pin Post" : {
+
+    },
+    "Pinned Posts" : {
+
+    },
+    "Pinned Profile Record" : {
+
+    },
+    "Place" : {
+
+    },
+    "Place actions" : {
+
+    },
+    "Place unavailable" : {
+
+    },
+    "Places" : {
+
+    },
+    "Places in display order" : {
+
+    },
+    "Platform" : {
+
+    },
+    "Point" : {
+
+    },
+    "Post" : {
+
+    },
+    "Post Actions" : {
+
+    },
+    "Postal code" : {
+
+    },
+    "Poster" : {
+
+    },
+    "Posters" : {
+
+    },
+    "Preview" : {
+
+    },
+    "Previous day" : {
+
+    },
+    "Primary" : {
+
+    },
+    "Primary contributor" : {
+
+    },
+    "Profiles" : {
+
+    },
+    "Program" : {
+
+    },
+    "Program actions" : {
+
+    },
+    "Programs" : {
+
+    },
+    "Programs…" : {
+
+    },
+    "Project" : {
+
+    },
+    "Publication result" : {
+
+    },
+    "Publish" : {
+
+    },
+    "Publish as" : {
+
+    },
+    "Publish Changes" : {
+
+    },
+    "Published %lld events" : {
+
+    },
+    "Publishing changes and images…" : {
+
+    },
+    "Publishing currently supports event details and images. These other changes stay on this device; they will not be included." : {
+
+    },
+    "Purpose" : {
+
+    },
+    "Quiet" : {
+      "comment" : "Notification permission status when notifications are delivered provisionally or quietly"
+    },
+    "Reactions" : {
+
+    },
+    "Read" : {
+
+    },
+    "Recent Posts" : {
+
+    },
+    "Record" : {
+
+    },
+    "Record CID" : {
+
+    },
+    "Record CID (optional)" : {
+
+    },
+    "Record URI" : {
+
+    },
+    "Recording" : {
+
+    },
+    "Recordings" : {
+
+    },
+    "Referenced record" : {
+
+    },
+    "Referenced Record" : {
+
+    },
+    "Region" : {
+
+    },
+    "Relationship Actions" : {
+
+    },
+    "Relationships" : {
+
+    },
+    "Remove" : {
+
+    },
+    "Remove %@ reaction" : {
+
+    },
+    "Remove as primary" : {
+
+    },
+    "Remove Embed" : {
+
+    },
+    "Remove Image" : {
+
+    },
+    "Remove Link Card" : {
+
+    },
+    "Remove Pin" : {
+
+    },
+    "Remove Referenced Record" : {
+
+    },
+    "Remove Site Map" : {
+
+    },
+    "Remove Thumbnail" : {
+
+    },
+    "Remove Unavailable Performances" : {
+
+    },
+    "Remove Unavailable Performances?" : {
+
+    },
+    "Removed" : {
+
+    },
+    "Rename" : {
+
+    },
+    "Render" : {
+
+    },
+    "Reporting" : {
+
+    },
+    "Reporting Link" : {
+
+    },
+    "Reset" : {
+
+    },
+    "Reset changes" : {
+
+    },
+    "Reset workspace changes?" : {
+
+    },
+    "Resetting changes" : {
+
+    },
+    "Retry" : {
+
+    },
+    "Review Changes" : {
+
+    },
+    "Review Remaining Changes" : {
+
+    },
+    "Review your event changes and images before making them public. Other workspace changes are not included." : {
+
+    },
+    "Role" : {
+
+    },
+    "Role Actions" : {
+
+    },
+    "Roles" : {
+
+    },
+    "RSVPs" : {
+
+    },
+    "Same day" : {
+
+    },
+    "Save" : {
+
+    },
+    "Scan to join the TestFlight" : {
+
+    },
+    "Schedule" : {
+
+    },
+    "Schedule actions" : {
+
+    },
+    "Schedule filter, %@" : {
+
+    },
+    "Schedule Name" : {
+
+    },
+    "Scheduled items must be moved or deleted first." : {
+
+    },
+    "Schedules" : {
+
+    },
+    "Schedules…" : {
+
+    },
+    "Search" : {
+
+    },
+    "Search Contributors" : {
+
+    },
+    "Search or add contributor" : {
+
+    },
+    "Search Places" : {
+
+    },
+    "Search profiles" : {
+
+    },
+    "Search this event" : {
+
+    },
+    "Selected" : {
+
+    },
+    "Selected account" : {
+
+    },
+    "Selected schedule" : {
+
+    },
+    "Send Test Error" : {
+      "comment" : "Developer button that reports a test error"
+    },
+    "Set as primary" : {
+
+    },
+    "Set end time" : {
+
+    },
+    "Set start time" : {
+
+    },
+    "Set Up" : {
+      "comment" : "Notification permission status before the person has made a choice"
+    },
+    "Settings" : {
+
+    },
+    "Share" : {
+
+    },
+    "Short Label" : {
+
+    },
+    "Sign in with the account that owns this event to enter Workspace." : {
+
+    },
+    "Silent" : {
+
+    },
+    "Site Map" : {
+
+    },
+    "Sort Index" : {
+
+    },
+    "Source" : {
+
+    },
+    "Sponsor" : {
+
+    },
+    "Stage" : {
+
+    },
+    "Stage Color" : {
+
+    },
+    "Stage Fallback" : {
+
+    },
+    "Stage Lineup" : {
+
+    },
+    "Stage Lineups" : {
+
+    },
+    "Stage Profile" : {
+
+    },
+    "Stage profile unavailable" : {
+
+    },
+    "Stage Profiles" : {
+
+    },
+    "Stages" : {
+
+    },
+    "Standard" : {
+
+    },
+    "Start Day" : {
+
+    },
+    "Starts" : {
+
+    },
+    "Starts %@" : {
+
+    },
+    "Starts in" : {
+
+    },
+    "Status" : {
+
+    },
+    "Street" : {
+
+    },
+    "Style Actions" : {
+
+    },
+    "Style Title" : {
+
+    },
+    "Styles" : {
+
+    },
+    "Subject" : {
+
+    },
+    "Subscribed" : {
+
+    },
+    "Syndicated Records" : {
+
+    },
+    "Syndication Actions" : {
+
+    },
+    "Syndications" : {
+
+    },
+    "TBA" : {
+
+    },
+    "Technical details" : {
+
+    },
+    "Test error." : {
+
+    },
+    "Text Annotations" : {
+
+    },
+    "Text in post" : {
+
+    },
+    "The previous publication was verified, but its content was not saved for comparison. Current content is shown below." : {
+
+    },
+    "The site map will be removed when you save." : {
+
+    },
+    "There are no posts in this channel yet." : {
+
+    },
+    "These appear when the stage has no logo. Use an icon name such as calendar or heart." : {
+
+    },
+    "This communication channel could not be loaded." : {
+
+    },
+    "This contributor could not be loaded." : {
+
+    },
+    "This event could not be loaded." : {
+
+    },
+    "This Event Place" : {
+
+    },
+    "This event place could not be loaded." : {
+
+    },
+    "This event wants to send you important updates." : {
+
+    },
+    "This locator is preserved without changes." : {
+
+    },
+    "This permanently removes the post from this channel." : {
+
+    },
+    "This post could not be loaded." : {
+
+    },
+    "This post has an existing embed." : {
+
+    },
+    "This post uses an unrecognized delivery setting. It will be preserved." : {
+
+    },
+    "This poster could not be loaded." : {
+
+    },
+    "This removes saved performances that are no longer in the published event." : {
+
+    },
+    "This removes the channel. Posts already published in it are not changed." : {
+
+    },
+    "This removes the performance from this schedule." : {
+
+    },
+    "This removes the poster from this event." : {
+
+    },
+    "This removes the schedule and its saved performances." : {
+
+    },
+    "This restores published content to its last verified version, and unpublished content to its starting version. Your published content is not deleted." : {
+
+    },
+    "This site map could not be loaded." : {
+
+    },
+    "This stage profile could not be loaded." : {
+
+    },
+    "This subject type cannot be edited here." : {
+
+    },
+    "Thumbnail Alt Text" : {
+
+    },
+    "Thumbnail Info" : {
+
+    },
+    "Thumbnail URL" : {
+
+    },
+    "Tickets" : {
+
+    },
+    "Time" : {
+
+    },
+    "Time Zone" : {
+
+    },
+    "Times" : {
+
+    },
+    "Title" : {
+
+    },
+    "Turn On Notifications" : {
+
+    },
+    "Type" : {
+
+    },
+    "Unable to load contributor profile." : {
+
+    },
+    "Unable to request Critical Alerts permission." : {
+
+    },
+    "Unable to switch Workspace." : {
+      "comment" : "Transient error shown when a requested Workspace branch baseline could not be selected."
+    },
+    "Unavailable" : {
+
+    },
+    "Unknown" : {
+
+    },
+    "Unlink Account" : {
+
+    },
+    "Unlink Stage" : {
+
+    },
+    "Unpin Post" : {
+
+    },
+    "Unplaced" : {
+
+    },
+    "Unread" : {
+
+    },
+    "Unread posts: %lld" : {
+
+    },
+    "Unrecognized kind" : {
+
+    },
+    "Unrecognized media" : {
+
+    },
+    "Unrecognized value" : {
+
+    },
+    "Unscheduled" : {
+
+    },
+    "Unspecified" : {
+
+    },
+    "Unsubscribed" : {
+
+    },
+    "Unsupported" : {
+
+    },
+    "Unsupported format" : {
+
+    },
+    "URL" : {
+
+    },
+    "Use" : {
+
+    },
+    "Use for This Place" : {
+
+    },
+    "Website" : {
+
+    },
+    "What changed" : {
+
+    },
+    "What is this channel for?" : {
+
+    },
+    "Workspace" : {
+      "comment" : "Settings section for entering or leaving the event workspace"
+    },
+    "Write" : {
+
+    },
+    "Your edits are preserved. Review remaining changes to try again." : {
+
+    },
+    "Your local edits are still here. You can try again." : {
+
+    }
+  },
+  "version" : "1.0"
+}

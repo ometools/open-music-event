@@ -1,0 +1,41 @@
+{
+  "lexicon": 1,
+  "id": "app.openmusicevent.workspace.getProposals",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "List Workspace proposals for one canonical source and target branch.",
+      "parameters": {
+        "type": "params",
+        "required": ["source", "targetBranch"],
+        "properties": {
+          "source": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "The canonical OME Tangled repository record URI."
+          },
+          "targetBranch": { "type": "string" },
+          "includeRetained": { "type": "boolean", "default": false },
+          "cursor": { "type": "string" },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 100
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "ref",
+          "ref": "app.openmusicevent.workspace.defs#page"
+        }
+      },
+      "errors": [
+        { "name": "InvalidCursor" },
+        { "name": "WorkspaceUnavailable" }
+      ]
+    }
+  }
+}

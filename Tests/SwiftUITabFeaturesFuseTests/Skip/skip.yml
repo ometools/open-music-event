@@ -1,0 +1,40 @@
+# Transpiled test driver mounting the native Swift fixture through Compose.
+skip:
+  mode: 'transpiled'
+
+build:
+  contents:
+    - block: 'android'
+      contents:
+        - 'namespace = "swift.uitab.features.fuse.fixtures"'
+    - block: 'dependencies'
+      contents:
+        - 'testImplementation(libs.androidx.compose.ui.test)'
+        - 'androidTestImplementation(libs.androidx.compose.ui.test)'
+        - 'testImplementation(libs.androidx.compose.ui.test.junit4)'
+        - 'androidTestImplementation(libs.androidx.compose.ui.test.junit4)'
+        - 'testImplementation(libs.androidx.compose.ui.test.manifest)'
+        - 'androidTestImplementation(libs.androidx.compose.ui.test.manifest)'
+    - block: 'tasks.named("buildLocalSwiftPackage")'
+      contents:
+        - block: 'doLast'
+          contents:
+            - block: 'project.objects.newInstance<SkipBridgeExecOps>().execOps.exec'
+              contents:
+                - 'workingDir(layout.projectDirectory)'
+                - 'commandLine("sh", "-cx", "swift build --package-path \"${swiftSourceFolder()}\" --configuration debug --product SwiftUITabFeaturesFuseFixtures --scratch-path \"${layout.projectDirectory}/.build/SwiftUITabFeaturesFuseFixtures/swift\" -Xcc -fPIC -Xswiftc -DSKIP_BRIDGE -Xswiftc -DROBOLECTRIC")'
+                - 'environment("SKIP_BRIDGE", "1")'
+                - 'if (file(skipCommand).exists()) { environment("SKIP_COMMAND_OVERRIDE", skipCommand) }'
+
+# The merged fixture project includes native dependencies without a generated
+# namespace. Assign one as each Android library plugin is applied.
+settings:
+  contents:
+    - block: 'gradle.beforeProject'
+      contents:
+        - 'val moduleNamespace = "skip.generated." + name.replace(Regex("([A-Z]+)([A-Z][a-z])"), "$1.$2").replace(Regex("([a-z0-9])([A-Z])"), "$1.$2").replace("-", ".").lowercase()'
+        - block: 'pluginManager.withPlugin'
+          param: '"com.android.library"'
+          contents:
+            - 'val android = extensions.getByName("android")'
+            - 'android.javaClass.methods.first { it.name == "setNamespace" && it.parameterCount == 1 }.invoke(android, moduleNamespace)'

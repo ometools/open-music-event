@@ -1,0 +1,33 @@
+{
+  "defs" : {
+    "main" : {
+      "description" : "A physical location in the form of a WGS84 coordinate.",
+      "nullable" : [
+        "altitude",
+        "name"
+      ],
+      "properties" : {
+        "altitude" : {
+          "type" : "string"
+        },
+        "latitude" : {
+          "type" : "string"
+        },
+        "longitude" : {
+          "type" : "string"
+        },
+        "name" : {
+          "description" : "The name of the location.",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "latitude",
+        "longitude"
+      ],
+      "type" : "object"
+    }
+  },
+  "id" : "community.lexicon.location.geo",
+  "lexicon" : 1
+}

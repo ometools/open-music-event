@@ -1,0 +1,800 @@
+# This Fastfile owns credential-free build and test automation for OpenMusicEvent.
+# Store uploads, signing, and release credentials belong to the platform-specific
+# Fastfiles under Darwin/ and Android/.
+#
+# Fastlane files are Ruby with a small workflow DSL:
+#
+# - `desc` documents the lane immediately below it.
+# - `lane :name do |options|` defines a command you can run by name.
+# - Lane options arrive from `key:value` command-line arguments.
+# - `sh` runs an external command and stops the lane when it fails.
+# - `UI.user_error!` stops with a readable error; other `UI` calls report status.
+# - Calling one lane from another composes a larger workflow.
+#
+# Helpers come first so each lane reads as a short workflow built from named
+# operations. Local runs use the repository's pinned Fastlane bundle:
+#
+#   Scripts/fastlane-local.sh suite ios_device:<udid> android_device:<serial>
+#
+# CI can install the same bundle and invoke `bundle exec fastlane <lane>`.
+
+require "json"
+require "fileutils"
+require "open3"
+require "rbconfig"
+
+# Keep these runs out of Fastlane's anonymous usage reporting.
+opt_out_usage
+
+# =============================================================================
+# Shared project paths and process helpers
+# =============================================================================
+
+def repo_root
+  File.expand_path("..", __dir__)
+end
+
+# CI and local shells may invoke Fastlane from different directories. Keep every
+# repository command anchored at the checkout root without wrapping the command
+# in machine-specific scheduling infrastructure.
+def run_in_repo(*command)
+  Dir.chdir(repo_root) do
+    sh(*command)
+  end
+end
+
+# Temporarily set environment variables for one operation, then restore the
+# caller's environment even if the operation fails.
+def with_environment(values)
+  previous_values = values.to_h { |key, _value| [key, ENV[key]] }
+  values.each { |key, value| value.nil? ? ENV.delete(key) : ENV[key] = value }
+  yield
+ensure
+  previous_values.each { |key, value| value.nil? ? ENV.delete(key) : ENV[key] = value }
+end
+
+def executable_available?(name)
+  ENV.fetch("PATH", "")
+    .split(File::PATH_SEPARATOR)
+    .any? { |directory| File.executable?(File.join(directory, name)) }
+end
+
+# =============================================================================
+# Swift, Skip, and Android command ownership
+# =============================================================================
+
+# SKIPLOCAL names the canonical Skipstone source checkout. CI should set it to
+# the checkout prepared for the job. It is deliberately separate from
+# SKIP_COMMAND_OVERRIDE, which may select an isolated SkipRunner.
+def skiplocal
+  File.expand_path(
+    ENV.fetch(
+      "SKIPLOCAL",
+      "~/Developer/swift-packages/3rd-party/skip/skipstone"
+    )
+  )
+end
+
+def run_local_skip(*arguments)
+  UI.user_error!("SKIPLOCAL is unavailable at #{skiplocal}") unless File.directory?(skiplocal)
+
+  run_in_repo(
+    "swift", "run",
+    "--package-path", skiplocal,
+    "SkipRunner",
+    *arguments
+  )
+end
+
+def android_harness
+  File.join(repo_root, "Scripts", "android-smoke-build.sh")
+end
+
+# Fastlane chooses the workflow. The harness owns the generated Gradle project,
+# APK selection, local package routing, and Android build caches.
+def run_android_harness(*arguments)
+  UI.user_error!("Android harness is unavailable at #{android_harness}") unless File.executable?(android_harness)
+
+  run_in_repo(android_harness, *arguments)
+end
+
+# =============================================================================
+# iOS Simulator helpers
+# =============================================================================
+
+# Android uses SKIPLOCAL to route through the checked-out Skip packages. Keep
+# that route out of iOS operations so xcodebuild resolves the normal iOS package
+# graph and does not rewrite Package.resolved before the Android lane runs.
+def with_ios_environment
+  with_environment(
+    "SKIPLOCAL" => nil,
+    "SKIP_PLUGIN_DISABLED" => "",
+    "SKIP_ACTION" => "none",
+    "OME_ANDROID_APP_BUILD" => nil
+  ) do
+    with_environment("OME_TCA26_PATH" => prepared_ios_tca26_path) do
+      yield
+    end
+  end
+end
+
+def booted_ios_device_id
+  output, error, status = Open3.capture3("xcrun", "simctl", "list", "devices", "booted", "--json")
+  UI.user_error!("Unable to inspect iOS Simulators: #{error}") unless status.success?
+
+  devices = JSON.parse(output).fetch("devices").values.flatten
+  device = devices.find { |candidate| candidate["state"] == "Booted" }
+  UI.user_error!("No iOS Simulator is booted") unless device
+
+  device.fetch("udid")
+end
+
+def ios_ui_derived_data_path
+  File.join(repo_root, ".build", "fastlane-ios-derived-data-tca26-sharing-defaults")
+end
+
+def ios_ui_app_path
+  File.join(
+    ios_ui_derived_data_path,
+    "Build", "Products", "Debug-iphonesimulator", "OpenMusicEventApp.app"
+  )
+end
+
+def ios_tca_source_derived_data_path
+  File.join(repo_root, ".build", "fastlane-ios-tca-source")
+end
+
+def prepared_ios_tca26_path
+  if (explicit_path = ENV["OME_TCA26_PATH"]) && !explicit_path.empty?
+    path = File.expand_path(explicit_path)
+    UI.user_error!("OME_TCA26_PATH is unavailable at #{path}") unless File.directory?(path)
+    return path
+  end
+
+  checkout = File.join(ios_tca_source_derived_data_path, "SourcePackages", "checkouts", "TCA26")
+  checkout_head = File.join(checkout, ".git", "HEAD")
+  output_parent = File.join(repo_root, ".build", "ios-tca")
+  output = File.join(output_parent, "TCA26")
+  stamp = File.join(output_parent, "source-revision")
+  alternate_manifest = File.join(output, "Package@swift-6.3.swift")
+
+  pins = JSON.parse(File.read(File.join(repo_root, "Package.resolved"))).fetch("pins")
+  revision = pins.find { |pin| pin["identity"] == "tca26" }&.dig("state", "revision")
+  unless revision
+    # An iOS build uses the local prepared package and can remove its remote pin.
+    # Reuse only the prepared source whose stamp still matches the checked-out revision.
+    return output if File.file?(stamp) && File.file?(checkout_head) &&
+      File.read(stamp).strip == File.read(checkout_head).strip &&
+      File.file?(alternate_manifest) &&
+      !File.read(alternate_manifest).include?(%q{traits: [.defaults, "CasePaths"]})
+    UI.user_error!("Package.resolved has no pinned TCA26 revision or verified prepared checkout")
+  end
+
+  unless File.file?(checkout_head) && File.read(checkout_head).strip == revision
+    run_in_repo(
+      "xcodebuild", "-resolvePackageDependencies",
+      "-workspace", File.join(repo_root, "Project.xcworkspace"),
+      "-scheme", "OpenMusicEvent App",
+      "-derivedDataPath", ios_tca_source_derived_data_path,
+      "-skipPackagePluginValidation", "-skipMacroValidation"
+    )
+  end
+  UI.user_error!("Xcode did not check out pinned TCA26 #{revision}") unless
+    File.file?(checkout_head) && File.read(checkout_head).strip == revision
+
+  if File.file?(stamp) && File.read(stamp).strip == revision &&
+      File.file?(alternate_manifest) &&
+      !File.read(alternate_manifest).include?(%q{traits: [.defaults, "CasePaths"]})
+    return output
+  end
+
+  FileUtils.rm_rf(output)
+  FileUtils.mkdir_p(output)
+  Dir.children(checkout).each do |entry|
+    next if entry == ".git"
+    FileUtils.cp_r(File.join(checkout, entry), File.join(output, entry))
+  end
+  ["Package.swift", "Package@swift-6.3.swift"].each do |name|
+    manifest = File.join(output, name)
+    contents = File.read(manifest)
+    old_traits = %q{traits: [.defaults, "CasePaths"]}
+    UI.user_error!("Pinned TCA26 #{name} has changed its Sharing traits") unless
+      contents.scan(old_traits).length == 1
+    File.chmod(0o644, manifest)
+    File.write(manifest, contents.sub(old_traits, "traits: [.defaults]"))
+  end
+  File.write(stamp, revision)
+  output
+end
+
+def build_ios_ui_app(device:, profile: "attendee")
+  with_ios_environment do
+    run_in_repo(
+      "xcodebuild",
+      "-workspace", File.join(repo_root, "Project.xcworkspace"),
+      "-scheme", "OpenMusicEvent App",
+      "-configuration", "Debug",
+      "-destination", "platform=iOS Simulator,id=#{device}",
+      "-derivedDataPath", ios_ui_derived_data_path,
+      "-skipPackagePluginValidation",
+      "-skipMacroValidation",
+      "OME_UI_AUTOMATION=YES",
+      "OME_UI_AUTOMATION_PROFILE=#{profile}",
+      "OME_OAUTH_CALLBACK_SCHEME=#{%w[authentication publication].include?(profile) ? "test.ome-auth.metadata" : "app.openmusicevent"}",
+      "build"
+    )
+  end
+
+  app_path = ios_ui_app_path
+  UI.user_error!("iOS app product is missing at #{app_path}") unless File.directory?(app_path)
+
+  app_path
+end
+
+def reset_ios_ui_app(device:, app_id:, app_path:)
+  output, error, status = Open3.capture3(
+    "xcrun", "simctl", "uninstall", device, app_id
+  )
+  unless status.success?
+    message = "#{output}\n#{error}"
+    expected_missing_app = message.match?(/not installed|No such file|NSPOSIXErrorDomain.*code=2/i)
+    UI.user_error!("Unable to clear iOS app data: #{message.strip}") unless expected_missing_app
+  end
+
+  sh("xcrun", "simctl", "install", device, app_path)
+  sh("xcrun", "simctl", "launch", device, app_id)
+end
+
+# =============================================================================
+# Maestro UI-testing helpers
+# =============================================================================
+
+def maestro_flows(options)
+  paths = if options[:flow]
+    [options[:flow]]
+  else
+    [
+      ".maestro/10-testival-attendee.yaml",
+      ".maestro/20-testival-refresh.yaml"
+    ]
+  end
+  paths.map { |path| File.expand_path(path, repo_root) }
+end
+
+def option_enabled?(value, default:)
+  return default if value.nil?
+
+  !%w[0 false no off].include?(value.to_s.downcase)
+end
+
+# A custom diagnostic flow is functional by default. The deterministic Testival
+# flow compares visual baselines unless the caller explicitly passes compare:false.
+def snapshot_comparison_requested?(options)
+  option_enabled?(options[:compare], default: options[:flow].nil?)
+end
+
+def snapshot_actual_root
+  File.join(repo_root, ".maestro", "screenshots")
+end
+
+def snapshot_baseline_root
+  File.join(repo_root, ".maestro", "baselines")
+end
+
+def snapshot_diff_root
+  File.join(repo_root, ".maestro", "diffs")
+end
+
+def prepare_snapshot_output_directories(platforms: %w[ios android])
+  platforms.each do |platform|
+    FileUtils.rm_rf(File.join(snapshot_actual_root, platform))
+    FileUtils.rm_rf(File.join(snapshot_diff_root, platform))
+    FileUtils.mkdir_p(File.join(snapshot_actual_root, platform))
+    FileUtils.mkdir_p(File.join(snapshot_diff_root, platform))
+  end
+end
+
+def snapshot_profiles
+  JSON.parse(File.read(File.join(snapshot_baseline_root, "profiles.json")))
+end
+
+def ios_snapshot_profile(device)
+  output, error, status = Open3.capture3("xcrun", "simctl", "list", "devices", "--json")
+  UI.user_error!("Unable to inspect the iOS snapshot profile: #{error}") unless status.success?
+
+  JSON.parse(output).fetch("devices").each do |runtime_identifier, devices|
+    match = devices.find { |candidate| candidate["udid"] == device }
+    next unless match
+
+    runtime = runtime_identifier
+      .sub("com.apple.CoreSimulator.SimRuntime.", "")
+      .sub("iOS-", "iOS ")
+      .tr("-", ".")
+    appearance, appearance_error, appearance_status = Open3.capture3(
+      "xcrun", "simctl", "ui", device, "appearance"
+    )
+    UI.user_error!("Unable to inspect iOS appearance: #{appearance_error}") unless appearance_status.success?
+    return {
+      "device" => match.fetch("name"),
+      "runtime" => runtime,
+      "appearance" => appearance.strip
+    }
+  end
+
+  UI.user_error!("The iOS Simulator #{device} is not registered")
+end
+
+def android_snapshot_profile(device)
+  avd_output, avd_error, avd_status = Open3.capture3(
+    "adb", "-s", device, "emu", "avd", "name"
+  )
+  UI.user_error!("Unable to inspect the Android AVD: #{avd_error}") unless avd_status.success?
+  avd = avd_output.lines.map(&:strip).reject { |line| line.empty? || line == "OK" }.first
+
+  release_output, release_error, release_status = Open3.capture3(
+    "adb", "-s", device, "shell", "getprop", "ro.build.version.release"
+  )
+  UI.user_error!("Unable to inspect the Android release: #{release_error}") unless release_status.success?
+
+  night_output, night_error, night_status = Open3.capture3(
+    "adb", "-s", device, "shell", "cmd", "uimode", "night"
+  )
+  UI.user_error!("Unable to inspect Android night mode: #{night_error}") unless night_status.success?
+  display_output, display_error, display_status = Open3.capture3(
+    "adb", "-s", device, "shell", "dumpsys", "display"
+  )
+  UI.user_error!("Unable to inspect Android display geometry: #{display_error}") unless display_status.success?
+  display = display_output.lines.find do |line|
+    line.include?("DisplayDeviceInfo{") && line.include?("FLAG_ALLOWED_TO_BE_DEFAULT_DISPLAY")
+  end
+  size = display&.match(/, (\d+) x (\d+),/)
+  density = display&.match(/, density (\d+),/)
+  UI.user_error!("Unable to identify the Android default display") unless size && density
+  cutout = display.match(/cutout DisplayCutout\{insets=Rect\((\d+), (\d+) - (\d+), (\d+)\)/)
+  UI.user_error!("Unrecognized Android display cutout") if display.include?("cutout ") && !cutout
+
+  window_output, window_error, window_status = Open3.capture3(
+    "adb", "-s", device, "shell", "dumpsys", "window"
+  )
+  UI.user_error!("Unable to inspect Android window insets: #{window_error}") unless window_status.success?
+  status_bar = window_output.match(/type=statusBars frame=\[\d+,(\d+)\]\[\d+,(\d+)\]/)
+  UI.user_error!("Unable to identify the Android status-bar inset") unless status_bar
+
+  {
+    "avd" => avd,
+    "release" => release_output.strip,
+    "night_mode" => night_output.strip,
+    "display_size" => "#{size[1]}x#{size[2]}",
+    "density" => density[1].to_i,
+    "status_bar_height" => status_bar[2].to_i - status_bar[1].to_i,
+    "cutout_insets" => cutout ? cutout.captures.map(&:to_i) : [0, 0, 0, 0]
+  }
+end
+
+def verify_snapshot_profiles!(ios_device:, android_device:)
+  expected = snapshot_profiles
+  actual_ios = ios_snapshot_profile(ios_device)
+  actual_android = android_snapshot_profile(android_device)
+
+  UI.user_error!(
+    "Visual baselines require #{expected.fetch("ios")}; found #{actual_ios}"
+  ) unless actual_ios == expected.fetch("ios")
+  UI.user_error!(
+    "Visual baselines require #{expected.fetch("android")}; found #{actual_android}"
+  ) unless actual_android == expected.fetch("android")
+end
+
+def run_snapshot_comparator(action, platform: nil, milestone: nil)
+  # Run the comparator with Fastlane's Ruby and load this Gemfile directly.
+  # A bare `bundle` command may resolve to Apple's system Bundler instead.
+  run_in_repo(
+    RbConfig.ruby, "-rbundler/setup",
+    File.join(repo_root, "Scripts", "compare-ui-snapshots.rb"),
+    action,
+    "--actual-root", snapshot_actual_root,
+    "--baseline-root", snapshot_baseline_root,
+    "--diff-root", snapshot_diff_root,
+    *(platform ? ["--platform", platform] : []),
+    *(milestone ? ["--milestone", milestone] : [])
+  )
+end
+
+def verify_maestro_device!(device)
+  _output, error, status = Open3.capture3("maestro", "--device", device, "hierarchy")
+  UI.user_error!("Maestro cannot connect to #{device}: #{error}") unless status.success?
+end
+
+def run_maestro(device:, app_id:, platform:, flow:)
+  output_directory = File.join(snapshot_actual_root, platform)
+  existing_screenshots = Dir.glob(File.join(output_directory, "**", "takeScreenshot", "*.png"))
+
+  # Maestro writes `takeScreenshot` artifacts under its test output directory.
+  # Give each platform its own stable directory, then promote just the PNGs to
+  # the paths consumed by the visual comparator.
+  performance_directory = File.join(output_directory, "performance-#{Process.clock_gettime(Process::CLOCK_MONOTONIC, :nanosecond)}")
+  sh(
+    "python3", File.join(repo_root, "Scripts", "ui-performance.py"),
+    "--device", device, "--app-id", app_id, "--platform", platform.to_s,
+    "--output", performance_directory, flow
+  )
+
+  # Maestro 2.9 may add timestamp and flow-name directories beneath the
+  # requested output directory, so discover screenshots recursively.
+  new_screenshots = Dir.glob(File.join(output_directory, "**", "takeScreenshot", "*.png")) - existing_screenshots
+  new_screenshots.each do |screenshot|
+    FileUtils.cp(screenshot, output_directory)
+  end
+end
+
+# =============================================================================
+# Readiness and non-UI test lanes
+# =============================================================================
+
+# `desc` appears in `fastlane lanes` and documents the next lane.
+desc "Run credential-free release readiness checks"
+lane :check do
+  run_in_repo("swift", "run", "ome-release-check")
+  run_local_skip("verify")
+  run_local_skip("meta", "index")
+end
+
+desc "Run the native Swift package tests on the macOS host"
+lane :host_tests do
+  # The Compose fixture is executed by compose_tests on Android. Its generated
+  # XCSkipTests entry point otherwise tries to run the UI through the host JVM.
+  run_in_repo(
+    "swift", "test", "--build-system", "native", "--skip-update", "--no-parallel",
+    "--skip", "SwiftUITabFeaturesFuseFixturesTests"
+  )
+end
+
+desc "Run the real Compose navigation and contact fixtures on Android"
+lane :compose_tests do |options|
+  device = options[:device] || ENV.fetch("OME_ANDROID_DEVICE_ID", "emulator-5554")
+  run_android_harness("--compose-tests", "--serial", device)
+end
+
+desc "Run OpenMusicEventAppTests on an iOS Simulator"
+lane :ios_tests do |options|
+  # Options use Fastlane's `device:<udid>` syntax. The environment variable is
+  # convenient for repeated runs; otherwise we use the first booted Simulator.
+  device = options[:device] || ENV["OME_IOS_DEVICE_ID"] || booted_ios_device_id
+
+  with_ios_environment do
+    run_in_repo(
+      "xcodebuild",
+      "-workspace", File.join(repo_root, "Project.xcworkspace"),
+      "-scheme", "OpenMusicEventAppTests",
+      "-destination", "platform=iOS Simulator,id=#{device}",
+      "-derivedDataPath", ios_ui_derived_data_path,
+      "-skipPackagePluginValidation",
+      "-skipMacroValidation",
+      "-parallel-testing-enabled", "NO",
+      "-only-testing:OpenMusicEventAppTests",
+      "test"
+    )
+  end
+end
+
+desc "Run OpenMusicEventAppTests in an Android instrumentation APK"
+lane :android_tests do |options|
+  device = options[:device] || ENV.fetch("OME_ANDROID_DEVICE_ID", "emulator-5554")
+  build_arguments = ["--serial", device]
+  if option_enabled?(options[:adopt_android_build_config], default: false)
+    build_arguments << "--adopt-build-config"
+  end
+
+  # First package the canonical app APK. Then package and run the test APK using
+  # that exact app product, so tests see the same bridged app types.
+  run_android_harness(*build_arguments)
+  run_android_harness("--tests", "--serial", device)
+end
+
+desc "Run the complete non-UI suite for the iOS app and Android"
+lane :suite do |options|
+  failures = []
+
+  # Calling lanes directly is Fastlane's composition model. Each platform gets
+  # a chance to run, and the aggregate reports every platform that failed.
+  begin
+    ios_tests(device: options[:ios_device])
+  rescue StandardError => error
+    failures << "iOS Simulator suite: #{error.message.lines.first.strip}"
+    UI.error(failures.last)
+  end
+
+  begin
+    android_tests(
+      device: options[:android_device],
+      adopt_android_build_config: options[:adopt_android_build_config]
+    )
+  rescue StandardError => error
+    failures << "Android instrumentation suite: #{error.message.lines.first.strip}"
+    UI.error(failures.last)
+  end
+
+  UI.user_error!(failures.join("\n")) unless failures.empty?
+end
+
+# =============================================================================
+# Device setup and dual-platform UI lanes
+# =============================================================================
+
+desc "Start the default headless Android emulator used by local tests"
+lane :start_android_emulator do |options|
+  name = options[:name] || ENV.fetch("OME_ANDROID_AVD", "Medium_Phone_API_36")
+  run_local_skip(
+    "android", "emulator", "launch",
+    "--name", name,
+    "--background",
+    "--headless"
+  )
+end
+
+desc "Verify the local tools and devices required for dual-platform UI tests"
+lane :ui_test_preflight do |options|
+  UI.user_error!("Maestro is unavailable. Install it with Homebrew before running UI tests.") unless executable_available?("maestro")
+  maestro_flows(options).each do |flow|
+    UI.user_error!("Maestro flow does not exist: #{flow}") unless File.file?(flow)
+  end
+
+  ios_device = options[:ios_device] || ENV["OME_IOS_DEVICE_ID"] || booted_ios_device_id
+  android_device = options[:android_device] || ENV.fetch("OME_ANDROID_DEVICE_ID", "emulator-5554")
+
+  sh("maestro", "--version")
+  verify_maestro_device!(ios_device)
+  verify_maestro_device!(android_device)
+  if snapshot_comparison_requested?(options)
+    verify_snapshot_profiles!(
+      ios_device: ios_device,
+      android_device: android_device
+    )
+  end
+  UI.success("iOS UI test device: #{ios_device}")
+  UI.success("Android UI test device: #{android_device}")
+  maestro_flows(options).each { |flow| UI.success("Maestro flow: #{flow}") }
+end
+
+def run_dual_platform_ui_suite(options, snapshot_action:)
+  ios_device = options[:ios_device] || ENV["OME_IOS_DEVICE_ID"] || booted_ios_device_id
+  android_device = options[:android_device] || ENV.fetch("OME_ANDROID_DEVICE_ID", "emulator-5554")
+  ios_app_id = options[:ios_app_id] || ENV.fetch("OME_IOS_APP_ID", "app.openmusicevent")
+  android_app_id = options[:android_app_id] || ENV.fetch("OME_ANDROID_APP_ID", "fm.woody.openmusicevent")
+  flows = maestro_flows(options)
+
+  prepare_snapshot_output_directories
+
+  android_arguments = ["--install", "--serial", android_device]
+
+  # `all_tests` has already built and validated the canonical APK. In that
+  # composed lane, reuse its validated native products. Gradle still repackages
+  # the wrapper with BuildConfig.OME_UI_AUTOMATION enabled.
+  android_arguments << "--no-prebuild" if options[:reuse_android_build]
+  if !options[:reuse_android_build] && option_enabled?(
+    options[:adopt_android_build_config],
+    default: false
+  )
+    android_arguments << "--adopt-build-config"
+  end
+
+  with_environment("OME_UI_AUTOMATION" => "1") do
+    run_android_harness(*android_arguments)
+  end
+  ios_app_path = build_ios_ui_app(device: ios_device)
+
+  failures = []
+  flows.each do |flow|
+    begin
+      # Each story owns a fresh attendee database. Reinstall the already-built
+      # iOS app and clear the already-installed Android app without recompiling.
+      reset_ios_ui_app(
+        device: ios_device,
+        app_id: ios_app_id,
+        app_path: ios_app_path
+      )
+      run_android_harness(
+        "--run-installed",
+        "--clear-data",
+        "--launch",
+        "--serial", android_device
+      )
+
+      [
+        ["iOS", ios_device, ios_app_id, "ios"],
+        ["Android", android_device, android_app_id, "android"]
+      ].each do |name, device, app_id, platform|
+        begin
+          run_maestro(
+            device: device,
+            app_id: app_id,
+            platform: platform,
+            flow: flow
+          )
+        rescue StandardError => error
+          failures << "#{name} #{File.basename(flow)}: #{error.message.lines.first.strip}"
+          UI.error(failures.last)
+        end
+      end
+    rescue StandardError => error
+      failures << "App reset for #{File.basename(flow)}: #{error.message.lines.first.strip}"
+      UI.error(failures.last)
+    end
+  end
+
+  UI.user_error!(failures.join("\n")) unless failures.empty?
+  run_snapshot_comparator(snapshot_action) if snapshot_action
+end
+
+desc "Run deterministic Testival attendee and refresh stories on iOS and Android"
+lane :ui_tests do |options|
+  # A lane can call another lane just like a Ruby method. Keeping preflight as a
+  # lane also makes it independently runnable while diagnosing local setup.
+  ui_test_preflight(options)
+
+  snapshot_action = snapshot_comparison_requested?(options) ? "compare" : nil
+  run_dual_platform_ui_suite(options, snapshot_action: snapshot_action)
+end
+
+desc "Run attendee and Workspace UI stories with iOS visual baselines"
+lane :ios_ui_tests do |options|
+  UI.user_error!("ios_ui_tests always uses the Testival flows; omit flow:<path>") if options[:flow]
+  UI.user_error!("Maestro is unavailable") unless executable_available?("maestro")
+  flows = maestro_flows(options) + [
+    File.join(repo_root, ".maestro", "30-workspace-owner-required.yaml")
+  ]
+  flows.each do |flow|
+    UI.user_error!("Maestro flow does not exist: #{flow}") unless File.file?(flow)
+  end
+
+  ios_device = options[:ios_device] || ENV["OME_IOS_DEVICE_ID"] || booted_ios_device_id
+  ios_app_id = options[:ios_app_id] || ENV.fetch("OME_IOS_APP_ID", "app.openmusicevent")
+  verify_maestro_device!(ios_device)
+  expected_profile = snapshot_profiles.fetch("ios")
+  actual_profile = ios_snapshot_profile(ios_device)
+  UI.user_error!(
+    "Visual baselines require #{expected_profile}; found #{actual_profile}"
+  ) unless actual_profile == expected_profile
+
+  prepare_snapshot_output_directories(platforms: ["ios"])
+  ios_app_path = if option_enabled?(options[:reuse_ios_build], default: false)
+    ios_ui_app_path
+  else
+    build_ios_ui_app(device: ios_device)
+  end
+  UI.user_error!("iOS app product is missing at #{ios_app_path}") unless File.directory?(ios_app_path)
+  flows.each do |flow|
+    reset_ios_ui_app(device: ios_device, app_id: ios_app_id, app_path: ios_app_path)
+    run_maestro(device: ios_device, app_id: ios_app_id, platform: "ios", flow: flow)
+  end
+  run_snapshot_comparator("compare", platform: "ios")
+  run_snapshot_comparator(
+    "compare", platform: "ios", milestone: "90-workspace-signed-out"
+  )
+end
+
+desc "Run canonical Event Workspace editing on iOS with a deterministic owner account"
+lane :ios_workspace_ui_tests do |options|
+  UI.user_error!("Maestro is unavailable") unless executable_available?("maestro")
+  flow = File.join(repo_root, ".maestro", "40-workspace-owner.yaml")
+  place_flow = File.join(repo_root, ".maestro", "45-workspace-event-place.yaml")
+  credit_flow = File.join(repo_root, ".maestro", "46-workspace-performance-credit.yaml")
+  post_flow = File.join(repo_root, ".maestro", "47-workspace-social-post.yaml")
+  contributor_media_flow = File.join(repo_root, ".maestro", "48-workspace-contributor-media.yaml")
+  event_media_flow = File.join(repo_root, ".maestro", "49-workspace-event-media.yaml")
+  event_location_map_flow = File.join(repo_root, ".maestro", "50-workspace-event-location-map.yaml")
+  relationship_flow = File.join(repo_root, ".maestro", "51-workspace-relationship.yaml")
+  thumbnail_info_flow = File.join(repo_root, ".maestro", "52-workspace-thumbnail-info.yaml")
+  publication_review_flow = File.join(repo_root, ".maestro", "53-workspace-publish-review.yaml")
+  creation_flow = File.join(repo_root, ".maestro", "54-create-event.yaml")
+  [flow, place_flow, credit_flow, post_flow, contributor_media_flow, event_media_flow, event_location_map_flow, relationship_flow, thumbnail_info_flow, publication_review_flow, creation_flow].each do |path|
+    UI.user_error!("Maestro flow does not exist: #{path}") unless File.file?(path)
+  end
+
+  ios_device = options[:ios_device] || ENV["OME_IOS_DEVICE_ID"] || booted_ios_device_id
+  ios_app_id = options[:ios_app_id] || ENV.fetch("OME_IOS_APP_ID", "app.openmusicevent")
+  verify_maestro_device!(ios_device)
+  expected_profile = snapshot_profiles.fetch("ios")
+  actual_profile = ios_snapshot_profile(ios_device)
+  UI.user_error!(
+    "Visual baselines require #{expected_profile}; found #{actual_profile}"
+  ) unless actual_profile == expected_profile
+
+  ios_app_path = if option_enabled?(options[:reuse_ios_build], default: false)
+    ios_ui_app_path
+  else
+    build_ios_ui_app(device: ios_device, profile: "workspace")
+  end
+  UI.user_error!("iOS app product is missing at #{ios_app_path}") unless File.directory?(ios_app_path)
+  reset_ios_ui_app(device: ios_device, app_id: ios_app_id, app_path: ios_app_path)
+  run_maestro(device: ios_device, app_id: ios_app_id, platform: "ios", flow: flow)
+  reset_ios_ui_app(device: ios_device, app_id: ios_app_id, app_path: ios_app_path)
+  run_maestro(device: ios_device, app_id: ios_app_id, platform: "ios", flow: place_flow)
+  reset_ios_ui_app(device: ios_device, app_id: ios_app_id, app_path: ios_app_path)
+  run_maestro(device: ios_device, app_id: ios_app_id, platform: "ios", flow: credit_flow)
+  reset_ios_ui_app(device: ios_device, app_id: ios_app_id, app_path: ios_app_path)
+  run_maestro(device: ios_device, app_id: ios_app_id, platform: "ios", flow: post_flow)
+  reset_ios_ui_app(device: ios_device, app_id: ios_app_id, app_path: ios_app_path)
+  run_maestro(device: ios_device, app_id: ios_app_id, platform: "ios", flow: contributor_media_flow)
+  reset_ios_ui_app(device: ios_device, app_id: ios_app_id, app_path: ios_app_path)
+  run_maestro(device: ios_device, app_id: ios_app_id, platform: "ios", flow: event_media_flow)
+  reset_ios_ui_app(device: ios_device, app_id: ios_app_id, app_path: ios_app_path)
+  run_maestro(device: ios_device, app_id: ios_app_id, platform: "ios", flow: event_location_map_flow)
+  reset_ios_ui_app(device: ios_device, app_id: ios_app_id, app_path: ios_app_path)
+  run_maestro(device: ios_device, app_id: ios_app_id, platform: "ios", flow: relationship_flow)
+  reset_ios_ui_app(device: ios_device, app_id: ios_app_id, app_path: ios_app_path)
+  run_maestro(device: ios_device, app_id: ios_app_id, platform: "ios", flow: thumbnail_info_flow)
+  reset_ios_ui_app(device: ios_device, app_id: ios_app_id, app_path: ios_app_path)
+  run_maestro(device: ios_device, app_id: ios_app_id, platform: "ios", flow: publication_review_flow)
+  reset_ios_ui_app(device: ios_device, app_id: ios_app_id, app_path: ios_app_path)
+  run_maestro(device: ios_device, app_id: ios_app_id, platform: "ios", flow: creation_flow)
+  snapshot_action = options[:snapshot_action] || "compare"
+  UI.user_error!("snapshot_action must be compare or record") unless %w[compare record].include?(snapshot_action)
+  %w[91-workspace-empty 92-workspace-edited-event 93-workspace-reset 94-workspace-event-place 95-workspace-contributor-media 96-workspace-relationship].each do |milestone|
+    run_snapshot_comparator(snapshot_action, platform: "ios", milestone: milestone)
+  end
+end
+
+desc "Run the deterministic Testival suite and explicitly replace visual baselines"
+lane :record_ui_snapshots do |options|
+  UI.user_error!("record_ui_snapshots always uses the Testival flow; omit flow:<path>") if options[:flow]
+  ui_test_preflight(options)
+  run_dual_platform_ui_suite(options, snapshot_action: "record")
+end
+
+desc "Run host, iOS, Android, Compose, and Testival visual suites"
+lane :all_tests do |options|
+  host_tests
+  # This is the one-command path for a local machine or CI job that has both
+  # simulators available. A failing non-UI suite stops the UI phase.
+  suite(
+    ios_device: options[:ios_device],
+    android_device: options[:android_device],
+    adopt_android_build_config: options[:adopt_android_build_config]
+  )
+
+  compose_tests(device: options[:android_device])
+
+  # android_tests produced validated native products. The UI lane takes the
+  # harness's guarded incremental path, while still repackaging a UI-marked APK.
+  ui_tests(
+    ios_device: options[:ios_device],
+    android_device: options[:android_device],
+    ios_app_id: options[:ios_app_id],
+    android_app_id: options[:android_app_id],
+    flow: options[:flow],
+    adopt_android_build_config: options[:adopt_android_build_config],
+    reuse_android_build: true
+  )
+end
+
+
+desc "Build and install private auth apps on explicitly named dedicated devices"
+lane :auth_build do |options|
+  ios_device = options[:ios_device]
+  android_device = options[:android_device]
+  UI.user_error!("Explicit ios_device and android_device are required") unless ios_device && android_device
+  run_in_repo(
+    "python3", "Scripts/auth-e2e/run.py", "--check-devices",
+    "--ios-device", ios_device, "--android-device", android_device,
+    "--ios-app-id", "app.openmusicevent", "--android-app-id", "fm.woody.openmusicevent"
+  )
+  app_path = build_ios_ui_app(device: ios_device, profile: "authentication")
+  # Installation deliberately preserves state. Start the first run on fresh dedicated devices.
+  sh("xcrun", "simctl", "install", ios_device, app_path)
+  with_environment("OME_UI_AUTOMATION" => "0", "OME_UI_AUTOMATION_PROFILE" => "authentication") do
+    run_android_harness("--install", "--serial", android_device)
+  end
+end
+
+desc "Run signup, logout, login, restoration, refresh, and cross-device authentication"
+lane :auth_e2e do |options|
+  UI.user_error!("Explicit ios_device and android_device are required") unless options[:ios_device] && options[:android_device]
+  command = [
+    "python3", "Scripts/auth-e2e/run.py",
+    "--ios-device", options[:ios_device], "--android-device", options[:android_device],
+    "--ios-app-id", "app.openmusicevent", "--android-app-id", "fm.woody.openmusicevent"
+  ]
+  command << "--prepare" if options[:prepare].to_s == "true"
+  command += ["--resume", options[:resume]] if options[:resume]
+  run_in_repo(*command)
+end

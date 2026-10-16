@@ -1,0 +1,75 @@
+{
+  "lexicon": 1,
+  "id": "app.openmusicevent.relationship",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "An asserted relationship between an identity or record and an optional object.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["subject", "role", "createdAt"],
+        "properties": {
+          "subject": {
+            "type": "union",
+            "refs": ["#identity", "#record"]
+          },
+          "role": {
+            "type": "string",
+            "knownValues": [
+              "contributor",
+              "collaborator",
+              "owner",
+              "developer",
+              "maintainer",
+              "organizer",
+              "performer",
+              "sponsor",
+              "author",
+              "publisher",
+              "promoter",
+              "mediaManager",
+              "soundTech",
+              "stageHand",
+              "dj",
+              "dancer",
+              "visualArtist",
+              "displayed"
+            ]
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["propose", "merge"]
+            }
+          },
+          "object": {
+            "type": "union",
+            "refs": ["#identity", "#record"]
+          },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "description": "An identity by DID, with optional presentation information.",
+      "required": ["did"],
+      "properties": {
+        "did": { "type": "string", "format": "did" },
+        "handle": { "type": "string", "format": "handle" },
+        "displayName": { "type": "string" }
+      }
+    },
+    "record": {
+      "type": "object",
+      "description": "A repository record by AT URI, optionally pinned to a CID.",
+      "required": ["uri"],
+      "properties": {
+        "uri": { "type": "string", "format": "at-uri" },
+        "cid": { "type": "string", "format": "cid" }
+      }
+    }
+  }
+}

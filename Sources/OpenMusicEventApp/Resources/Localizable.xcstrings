@@ -1,0 +1,832 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "@%@" : {
+
+    },
+    "%lld" : {
+
+    },
+    "%lld Events are ready in My Events." : {
+
+    },
+    "%lld Items" : {
+      "comment" : "Header title for a list that contains the number of items",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld elementos"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld éléments"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アイテム数 %lld"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 个条目"
+          }
+        }
+      }
+    },
+    "%lld unread notifications" : {
+
+    },
+    "About" : {
+
+    },
+    "About OpenMusicEvent" : {
+
+    },
+    "Add" : {
+      "comment" : "Button in items list that will cause a new item to be added",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Añadir"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajouter"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "追加"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加"
+          }
+        }
+      }
+    },
+    "All Dates" : {
+
+    },
+    "All formats" : {
+
+    },
+    "Appearance" : {
+      "comment" : "Settings select label for the interface style of the controls (light, dark, or default)",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apariencia"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apparence"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "外観"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "外观"
+          }
+        }
+      }
+    },
+    "Browse" : {
+
+    },
+    "Cancel" : {
+      "comment" : "Button title indicating that the operation should be cancelled",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cancelar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Annuler"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "キャンセル"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取消"
+          }
+        }
+      }
+    },
+    "Choose a date" : {
+
+    },
+    "Create Event" : {
+
+    },
+    "Dark" : {
+      "comment" : "Menu item indicating that the appearance should be in dark mode",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oscuro"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sombre"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ダーク"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "深色"
+          }
+        }
+      }
+    },
+    "Date" : {
+      "comment" : "Item editor form label for the Date field",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fecha"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Date"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日付"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日期"
+          }
+        }
+      }
+    },
+    "Done" : {
+
+    },
+    "Edit" : {
+
+    },
+    "Enter a Tangled repository, not a local source path." : {
+
+    },
+    "Enter a valid source ref." : {
+
+    },
+    "Enter a valid Tangled repository." : {
+
+    },
+    "Enter Event" : {
+
+    },
+    "Entering…" : {
+
+    },
+    "Environment" : {
+      "comment" : "label for the OME service environment picker"
+    },
+    "Error Handling" : {
+
+    },
+    "Events Unavailable" : {
+
+    },
+    "Favorite" : {
+      "comment" : "Item editor title label for marking the item as a favorite",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Favorito"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Favori"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "お気に入り"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收藏"
+          }
+        }
+      }
+    },
+    "Feedback" : {
+
+    },
+    "Filter and sort" : {
+
+    },
+    "Following" : {
+
+    },
+    "Following feature stub." : {
+
+    },
+    "Happening Now" : {
+
+    },
+    "Hello [%@](https://skip.dev)!" : {
+      "comment" : "Welcome tab contents",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "¡Hola [%@](https://skip.dev)!"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bonjour [%@](https://skip.dev)!"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "こんにちは [%@](https://skip.dev)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你好 [%@](https://skip.dev)"
+          }
+        }
+      }
+    },
+    "Home" : {
+      "comment" : "Tab bar item title for the Home tab",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inicio"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Accueil"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ホーム"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "首页"
+          }
+        }
+      }
+    },
+    "Hybrid" : {
+
+    },
+    "Import and edit without signing in. Publishing later requires this account. Existing imported Events keep their local edits." : {
+
+    },
+    "Import Events" : {
+
+    },
+    "Importing Events" : {
+
+    },
+    "In person" : {
+
+    },
+    "Light" : {
+      "comment" : "Menu item indicating that the appearance should be in light mode",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claro"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clair"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "明るい"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "浅色"
+          }
+        }
+      }
+    },
+    "Links" : {
+
+    },
+    "Loading events" : {
+
+    },
+    "Location" : {
+
+    },
+    "More Events" : {
+
+    },
+    "My Events" : {
+
+    },
+    "Name" : {
+      "comment" : "Placeholder title for the Name field in a form",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nombre"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nom"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名前"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "姓名"
+          }
+        }
+      }
+    },
+    "Near Me" : {
+
+    },
+    "No Events" : {
+
+    },
+    "No events match the current browse selection." : {
+
+    },
+    "Notes" : {
+      "comment" : "Item editor form label for the Notes field",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notas"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notes"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ノート"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "笔记"
+          }
+        }
+      }
+    },
+    "Nothing is happening right now." : {
+
+    },
+    "Now" : {
+
+    },
+    "OK" : {
+      "comment" : "dismiss button for an environment switch failure alert"
+    },
+    "OpenMusicEvent Services" : {
+      "comment" : "header for advanced OME service environment settings"
+    },
+    "Organizer" : {
+
+    },
+    "Past Events" : {
+
+    },
+    "Powered by [Skip](https://skip.dev)" : {
+      "comment" : "Link markdown text for the Powered by… label",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impulsado por [Skip](https://skip.dev)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fonctionnalités offertes par [Skip](https://skip.dev)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "[Skip](https://skip.dev) を使って動かしています"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "由[Skip](https://skip.dev)提供支持"
+          }
+        }
+      }
+    },
+    "Preparing Testival" : {
+
+    },
+    "Previous" : {
+
+    },
+    "Production" : {
+      "comment" : "production OME service environment name"
+    },
+    "Publisher DID" : {
+
+    },
+    "Repository or local folder" : {
+
+    },
+    "Save" : {
+      "comment" : "Button title indicating that the current contents should be saved",
+      "extractionState" : "stale",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Guardar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enregistrer"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存"
+          }
+        }
+      }
+    },
+    "Search" : {
+
+    },
+    "Search events or organizers" : {
+
+    },
+    "Send Test Error" : {
+
+    },
+    "Settings" : {
+      "comment" : "button that opens white-label application settings",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Configuración"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paramètres"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "設定"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "设置"
+          }
+        }
+      }
+    },
+    "Soonest first" : {
+
+    },
+    "Source import output can only be used with Tangled repositories." : {
+
+    },
+    "Source repository" : {
+
+    },
+    "Staging" : {
+      "comment" : "staging OME service environment name"
+    },
+    "Switching returns to the app root, uses a separate database, and registers notifications with the selected service." : {
+      "comment" : "explanation below the OME service environment picker"
+    },
+    "System" : {
+      "comment" : "Menu item indicating that the appearance should be in the default system mode",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sistema"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Système"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "システム"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "系统"
+          }
+        }
+      }
+    },
+    "Tangled did not return a source archive." : {
+
+    },
+    "Test error." : {
+
+    },
+    "The repository owner did not resolve to a valid organizer." : {
+
+    },
+    "The source organizer ID is not valid." : {
+
+    },
+    "The Tangled source archive was empty." : {
+
+    },
+    "This organizer has no events." : {
+
+    },
+    "Title" : {
+      "comment" : "Label for the item editor form indicating the title of the item",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Título"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Titre"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "タイトル"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "标题"
+          }
+        }
+      }
+    },
+    "Try Again" : {
+
+    },
+    "Unable to authorize account." : {
+
+    },
+    "Unable to check source changes." : {
+
+    },
+    "Unable to connect to Tangled over SSH." : {
+
+    },
+    "Unable to delete event." : {
+
+    },
+    "Unable to enter this event." : {
+
+    },
+    "Unable to extract the Tangled source archive." : {
+
+    },
+    "Unable to import source." : {
+
+    },
+    "Unable to load feedback." : {
+
+    },
+    "Unable to load installed events: %@" : {
+
+    },
+    "Unable to load organizer." : {
+
+    },
+    "Unable to Prepare Testival" : {
+
+    },
+    "Unable to prepare the downloaded source because a file already exists." : {
+
+    },
+    "Unable to resolve the repository owner." : {
+
+    },
+    "Unable to restore the saved event workspace." : {
+
+    },
+    "Unable to restore your account session." : {
+
+    },
+    "Unable to save your event selection." : {
+
+    },
+    "Unable to send feedback." : {
+
+    },
+    "Unable to store the imported source because a file already exists." : {
+
+    },
+    "Unable to Switch Environment" : {
+      "comment" : "title for an alert shown when changing the OME service environment fails"
+    },
+    "Unable to upload source to Tangled." : {
+
+    },
+    "Unable to verify Tangled's SSH host key." : {
+
+    },
+    "Unavailable Events" : {
+
+    },
+    "Upcoming" : {
+
+    },
+    "Version %@ (%@)" : {
+      "comment" : "Settings label showing the current version of the app",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Version %1$@ (%2$@)"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Versión %1$@ (%2$@)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Version %1$@ (%2$@)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "バージョン %1$@ (%2$@)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "版本 %1$@ (%2$@)"
+          }
+        }
+      }
+    },
+    "Virtual" : {
+
+    },
+    "Welcome" : {
+      "comment" : "Tab bar item title for the Welcome tab",
+      "extractionState" : "stale",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bienvenido"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bienvenue"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ようこそ"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "欢迎"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

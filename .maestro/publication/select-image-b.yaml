@@ -1,0 +1,18 @@
+appId: ${APP_ID}
+---
+# Fresh test photo library: safety map (B) first, grounds map second.
+- tapOn: {point: '16%,25%'}
+- tapOn: {point: '90%,13%'}
+- extendedWaitUntil:
+    visible: Image Info
+    timeout: 15000
+- tapOn: Image Info
+- tapOn: Alt Text
+- inputText: Testival safety image B
+- tapOn: Save
+- tapOn: Save
+- tapOn: Save
+- extendedWaitUntil:
+    visible: {id: button.event-info.edit}
+    timeout: 15000
+- takeScreenshot: authored-event-image-b

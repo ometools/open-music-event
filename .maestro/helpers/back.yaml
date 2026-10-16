@@ -1,0 +1,15 @@
+appId: ${APP_ID}
+---
+# Maestro's generic back command maps to Android's system back action. SwiftUI
+# exposes its navigation control as BackButton, so use the native control there.
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn:
+          id: BackButton
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - back

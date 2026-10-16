@@ -1,0 +1,34 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appIDs": [
+          "YJRWV8Z7KT.app.openmusicevent"
+        ],
+        "components": [
+          {
+            "/": "/orgs/*"
+          }
+        ]
+      },
+      {
+        "appIDs": [
+          "FYZE6539TN.bundle.ome.OpenMusicEvent",
+          "FYZE6539TN.com.Festivl.WickedWoods"
+        ],
+        "components": [
+          {
+            "/": "/orgs/*"
+          }
+        ]
+      }
+    ]
+  },
+  "appclips": {
+    "apps": [
+      "FYZE6539TN.bundle.ome.OpenMusicEvent.Clip",
+      "FYZE6539TN.com.Festivl.WickedWoods.Clip"
+    ]
+  }
+}

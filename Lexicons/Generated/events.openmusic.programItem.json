@@ -1,0 +1,100 @@
+{
+  "defs" : {
+    "main" : {
+      "description" : "One organizer-owned attendee-facing occurrence, span, or milestone in an event program. It may be announced before its time or place is assigned.",
+      "key" : "tid",
+      "record" : {
+        "nullable" : [
+          "description",
+          "schedule",
+          "eventPlace",
+          "startsAt",
+          "endsAt",
+          "credits",
+          "media"
+        ],
+        "properties" : {
+          "createdAt" : {
+            "description" : "Client-declared timestamp when this program item record was created. Preserved when scheduling details change.",
+            "format" : "datetime",
+            "type" : "string"
+          },
+          "credits" : {
+            "description" : "Ordered organizer-authored credits. Omitted for items such as doors opening that have no credited contributors.",
+            "items" : {
+              "ref" : "events.openmusic.defs#programCredit",
+              "type" : "ref"
+            },
+            "minLength" : 1,
+            "type" : "array"
+          },
+          "description" : {
+            "description" : "A public description of this program item.",
+            "maxGraphemes" : 3000,
+            "maxLength" : 30000,
+            "type" : "string"
+          },
+          "endsAt" : {
+            "description" : "The exact instant when this item ends. Requires startsAt and must be later than it.",
+            "format" : "datetime",
+            "type" : "string"
+          },
+          "event" : {
+            "description" : "The DID-based record URI of the events.openmusic.event containing this program item.",
+            "format" : "at-uri",
+            "type" : "string"
+          },
+          "eventPlace" : {
+            "description" : "The DID-based events.openmusic.eventPlace assigned to this item. Omitted until a place is assigned.",
+            "format" : "at-uri",
+            "type" : "string"
+          },
+          "media" : {
+            "description" : "Media attached to this particular occurrence. Array order is the organizer's preferred display order.",
+            "items" : {
+              "refs" : [
+                "events.openmusic.defs#image",
+                "events.openmusic.defs#mediaRecord",
+                "events.openmusic.defs#externalMedia"
+              ],
+              "type" : "union"
+            },
+            "type" : "array"
+          },
+          "program" : {
+            "description" : "The DID-based events.openmusic.program this item belongs to.",
+            "format" : "at-uri",
+            "type" : "string"
+          },
+          "schedule" : {
+            "description" : "The organizer-defined events.openmusic.schedule festival day assigned to this item. Omitted until a day is assigned.",
+            "format" : "at-uri",
+            "type" : "string"
+          },
+          "startsAt" : {
+            "description" : "The exact instant when this item starts. Omitted until the start is assigned.",
+            "format" : "datetime",
+            "type" : "string"
+          },
+          "title" : {
+            "description" : "The organizer's public title for this occurrence, span, or milestone.",
+            "maxGraphemes" : 500,
+            "maxLength" : 5000,
+            "minLength" : 1,
+            "type" : "string"
+          }
+        },
+        "required" : [
+          "event",
+          "program",
+          "title",
+          "createdAt"
+        ],
+        "type" : "object"
+      },
+      "type" : "record"
+    }
+  },
+  "id" : "events.openmusic.programItem",
+  "lexicon" : 1
+}

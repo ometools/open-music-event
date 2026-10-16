@@ -1,0 +1,929 @@
+import CustomDump
+import Foundation
+import GRDB
+import IssueReporting
+import SourceEditing
+import SQLiteData
+import Testing
+
+@Table("todos")
+private struct Todo: Codable, Equatable, Sendable, Identifiable, SourceEditableTable {
+    @Column(primaryKey: true) var id: Int
+    var listID: String
+    var title: String
+    var note: String?
+    var localCache: String?
+
+    static var sourceDisplayName: String {
+        "Todo"
+    }
+
+    static var sourceColumnPolicies: SourceColumnPolicies<Self> {
+        [\.localCache: .ignore]
+    }
+}
+
+private struct TodoAttachment: Codable, Equatable, Sendable {
+    var label: String
+    var rank: Int
+}
+
+@Table("typed_todos")
+private struct TypedTodo: Equatable, Sendable, Identifiable, SourceEditableTable {
+    @Column(primaryKey: true) var id: Int
+    @Column(as: TodoAttachment.JSONRepresentation.self) var attachment: TodoAttachment
+
+    static var sourceRecordTypeWithAttachmentPolicy: AnySourceEditableRecordType {
+        sourceRecordType(
+            columnPolicies: [
+                \.attachment: .comparing { (value: DatabaseValue?) -> TodoAttachment? in
+                    guard case let .string(json)? = value?.storage else { return nil }
+                    return try? JSONDecoder().decode(
+                        TodoAttachment.self,
+                        from: Data(json.utf8)
+                    )
+                }
+            ]
+        )
+    }
+}
+
+@Table("todo_labels")
+private struct TodoLabel: Equatable, Sendable, Identifiable, SourceEditableTable {
+    @Column(primaryKey: true) var id: Int
+    var listID: String
+    var title: String
+
+    static var sourceDisplayName: String {
+        "Todo Label"
+    }
+}
+
+@Suite
+struct SourceEditingTests {
+    @Test
+    func descriptorDerivesTableMetadata() {
+        expectNoDifference(
+            Todo.sourceDescriptor,
+            SourceTableDescriptor(
+                id: "todos",
+                tableName: "todos",
+                primaryKeyColumns: ["id"],
+                comparedColumns: ["listID", "title", "note"],
+                resetColumnNames: ["id", "listID", "title", "note", "localCache"],
+                displayName: "Todo"
+            )
+        )
+    }
+
+    @Test
+    func summaryCountsAddedModifiedAndDeletedRowsInsideScope() throws {
+        let fixture = try SourceEditingFixture()
+        try fixture.updateWorking(id: 2, title: "New title")
+        try fixture.deleteWorking(id: 3)
+        try fixture.updateWorking(id: 4, localCache: "new")
+        try fixture.updateWorking(id: 5, title: "Other list changed")
+        try fixture.insertWorking(Todo(id: 6, listID: "list-1", title: "Added", note: nil, localCache: nil))
+
+        let summary = try fixture.summary(scope: listScope("list-1"))
+
+        expectNoDifference(
+            summary,
+            SourceChangeSummary(
+                availability: .available,
+                groups: [
+                    SourceChangeGroup(
+                        id: "todos",
+                        displayName: "Todo",
+                        added: 1,
+                        modified: 1,
+                        deleted: 1,
+                        records: [
+                            SourceRecordChange(
+                                tableID: "todos",
+                                kind: .added,
+                                primaryKeyValues: [
+                                    sourceColumnValue("id", 6.databaseValue)
+                                ],
+                                fieldChanges: [
+                                    sourceFieldChange("listID", workingValue: "list-1".databaseValue),
+                                    sourceFieldChange("title", workingValue: "Added".databaseValue),
+                                    sourceFieldChange("note", workingValue: .null),
+                                ]
+                            ),
+                            SourceRecordChange(
+                                tableID: "todos",
+                                kind: .modified,
+                                primaryKeyValues: [
+                                    sourceColumnValue("id", 2.databaseValue)
+                                ],
+                                fieldChanges: [
+                                    sourceFieldChange(
+                                        "title",
+                                        baselineValue: "Old title".databaseValue,
+                                        workingValue: "New title".databaseValue
+                                    )
+                                ]
+                            ),
+                            SourceRecordChange(
+                                tableID: "todos",
+                                kind: .deleted,
+                                primaryKeyValues: [
+                                    sourceColumnValue("id", 3.databaseValue)
+                                ],
+                                fieldChanges: [
+                                    sourceFieldChange("listID", baselineValue: "list-1".databaseValue),
+                                    sourceFieldChange("title", baselineValue: "Deleted candidate".databaseValue),
+                                    sourceFieldChange("note", baselineValue: .null),
+                                ]
+                            ),
+                        ]
+                    )
+                ]
+            )
+        )
+        #expect(summary.totalCount == 3)
+    }
+
+    @Test
+    func nullValuesCompareAsUnchanged() throws {
+        let fixture = try SourceEditingFixture()
+
+        let summary = try fixture.summary(scope: listScope("list-1"))
+
+        expectNoDifference(
+            summary.groups,
+            [
+                SourceChangeGroup(
+                    id: "todos",
+                    displayName: "Todo",
+                    added: 0,
+                    modified: 0,
+                    deleted: 0
+                )
+            ]
+        )
+        #expect(summary.totalCount == 0)
+    }
+
+    @Test
+    func nullAndNonNullValuesCompareAsModified() throws {
+        let fixture = try SourceEditingFixture()
+        try fixture.updateWorking(id: 1, note: "Updated")
+
+        let summary = try fixture.summary(scope: listScope("list-1"))
+
+        #expect(summary.groups.first?.modified == 1)
+        #expect(summary.totalCount == 1)
+        let group = try #require(summary.groups.first)
+        let record = try #require(group.records.first)
+        expectNoDifference(
+            record.fieldChanges,
+            [
+                sourceFieldChange(
+                    "note",
+                    baselineValue: .null,
+                    workingValue: "Updated".databaseValue
+                )
+            ]
+        )
+    }
+
+    @Test
+    func recordTypesRenderTypedDiffs() throws {
+        let fixture = try SourceEditingFixture()
+        try fixture.updateWorking(
+            id: 2,
+            title: "New title",
+            localCache: "Hidden cache"
+        )
+
+        let summary = try fixture.typedSummary(scope: listScope("list-1"))
+
+        let group = try #require(summary.groups.first)
+        let record = try #require(group.records.first)
+        #expect(record.recordDiff?.contains("Old title") == true)
+        #expect(record.recordDiff?.contains("New title") == true)
+        #expect(record.recordDiff?.contains("Hidden cache") == false)
+        #expect(record.recordDiff?.contains("localCache") == false)
+    }
+
+    @Test
+    func recordTypesExposeTypedLeftRightComparisons() throws {
+        let fixture = try SourceEditingFixture()
+        try fixture.updateWorking(id: 2, title: "New title")
+        try fixture.deleteWorking(id: 3)
+        try fixture.insertWorking(Todo(id: 6, listID: "list-1", title: "Added", note: nil, localCache: nil))
+
+        let summary = try fixture.typedSummary(scope: listScope("list-1"))
+
+        let group = try #require(summary.groups.first)
+        let addedRecord = try #require(group.records.first { $0.kind == .added })
+        let addedComparison = try #require(summary.recordComparisons[addedRecord]?.as(Todo.self))
+        #expect(addedComparison.left == nil)
+        #expect(addedComparison.right?.title == "Added")
+
+        let modifiedRecord = try #require(group.records.first { $0.kind == .modified })
+        let modifiedComparison = try #require(summary.recordComparisons[modifiedRecord]?.as(Todo.self))
+        #expect(modifiedComparison.left?.title == "Old title")
+        #expect(modifiedComparison.right?.title == "New title")
+
+        let deletedRecord = try #require(group.records.first { $0.kind == .deleted })
+        let deletedComparison = try #require(summary.recordComparisons[deletedRecord]?.as(Todo.self))
+        #expect(deletedComparison.left?.title == "Deleted candidate")
+        #expect(deletedComparison.right == nil)
+    }
+
+    @Test
+    func recordComparisonsKeepTablesWithMatchingPrimaryKeysSeparate() throws {
+        let fixture = try SourceEditingFixture()
+        try fixture.createTodoLabelsTable()
+        try fixture.insertWorking(TodoLabel(id: 2, listID: "list-1", title: "New label"))
+        try fixture.insertBaseline(TodoLabel(id: 2, listID: "list-1", title: "Old label"))
+        try fixture.updateWorking(id: 2, title: "New title")
+
+        let summary = try fixture.typedSummary(
+            recordTypes: [
+                Todo.sourceRecordType,
+                TodoLabel.sourceRecordType,
+            ],
+            scope: listScope("list-1")
+        )
+
+        let todoRecord = try #require(
+            summary.groups
+                .first { $0.id == Todo.tableName }?
+                .records
+                .first
+        )
+        let labelRecord = try #require(
+            summary.groups
+                .first { $0.id == TodoLabel.tableName }?
+                .records
+                .first
+        )
+
+        #expect(todoRecord.id != labelRecord.id)
+        #expect(todoRecord.tableID == "todos")
+        #expect(labelRecord.tableID == "todo_labels")
+
+        let todoComparison = try #require(summary.recordComparisons[todoRecord]?.as(Todo.self))
+        #expect(todoComparison.left?.title == "Old title")
+        #expect(todoComparison.right?.title == "New title")
+
+        let labelComparison = try #require(summary.recordComparisons[labelRecord]?.as(TodoLabel.self))
+        #expect(labelComparison.left?.title == "Old label")
+        #expect(labelComparison.right?.title == "New label")
+    }
+
+    @Test
+    func recordTypesDiffDecodedJSONColumns() throws {
+        let fixture = try SourceEditingFixture()
+        try fixture.createTypedTodosTable()
+        let record = TypedTodo(
+            id: 1,
+            attachment: TodoAttachment(label: "Before label", rank: 1)
+        )
+        try fixture.insertWorking(record)
+        try fixture.insertBaseline(record)
+        try fixture.updateWorkingTypedTodoAttachment(
+            id: 1,
+            attachment: TodoAttachment(label: "After label", rank: 1)
+        )
+
+        let summary = try fixture.typedTodoSummary(
+            recordType: TypedTodo.sourceRecordTypeWithAttachmentPolicy
+        )
+
+        let group = try #require(summary.groups.first)
+        let changedRecord = try #require(group.records.first)
+        let fieldChange = try #require(changedRecord.fieldChanges.first)
+        let fieldComparison = try #require(
+            summary.fieldComparisons[changedRecord, fieldChange]
+        )
+        let typedComparison = try #require(
+            fieldComparison.as(TodoAttachment.self)
+        )
+        expectNoDifference(
+            typedComparison.baseline,
+            TodoAttachment(label: "Before label", rank: 1)
+        )
+        expectNoDifference(
+            typedComparison.working,
+            TodoAttachment(label: "After label", rank: 1)
+        )
+
+        let recordDiff = try #require(changedRecord.recordDiff)
+        expectNoDifference(fieldComparison.difference, recordDiff)
+        #expect(recordDiff.contains("Before label"))
+        #expect(recordDiff.contains("After label"))
+        #expect(recordDiff.contains("TodoAttachment"))
+        #expect(!recordDiff.contains(#"{"label""#))
+    }
+
+    @Test
+    func recordTypesKeepRawChangesWhenTypedDiffCannotDecodeChangedRow() throws {
+        let fixture = try SourceEditingFixture()
+        try fixture.createTypedTodosTable()
+        let record = TypedTodo(
+            id: 1,
+            attachment: TodoAttachment(label: "Before label", rank: 1)
+        )
+        try fixture.insertWorking(record)
+        try fixture.insertBaseline(record)
+
+        let malformedAttachment = #"{"label":"Broken""#
+        try fixture.updateWorkingTypedTodoAttachmentRaw(
+            id: 1,
+            attachment: malformedAttachment
+        )
+
+        let reporter = SourceEditingIssueRecorder()
+        let summary = try withIssueReporters([reporter]) {
+            try fixture.typedTodoSummary()
+        }
+
+        expectNoDifference(reporter.messages.count, 1)
+        #expect(reporter.messages[0].contains("Unable to resolve source record fields."))
+
+        let group = try #require(summary.groups.first)
+        #expect(group.modified == 1)
+        #expect(summary.totalCount == 1)
+
+        let changedRecord = try #require(group.records.first)
+        #expect(changedRecord.kind == .modified)
+        expectNoDifference(
+            changedRecord.primaryKeyValues,
+            [
+                sourceColumnValue("id", 1.databaseValue)
+            ]
+        )
+        #expect(changedRecord.recordDiff == nil)
+
+        let fieldChange = try #require(changedRecord.fieldChanges.first)
+        #expect(fieldChange.columnName == "attachment")
+        #expect(fieldChange.workingValue == malformedAttachment.databaseValue)
+        #expect(summary.fieldComparisons[changedRecord, fieldChange] == nil)
+    }
+
+    @Test
+    func fieldComparisonsKeepMatchingColumnNamesOnDifferentRecordsSeparate() throws {
+        let firstField = sourceFieldChange(
+            "attachment",
+            baselineValue: "before-1".databaseValue,
+            workingValue: "after-1".databaseValue
+        )
+        let secondField = sourceFieldChange(
+            "attachment",
+            baselineValue: "before-2".databaseValue,
+            workingValue: "after-2".databaseValue
+        )
+        let firstRecord = SourceRecordChange(
+            tableID: "todos",
+            kind: .modified,
+            primaryKeyValues: [sourceColumnValue("id", 1.databaseValue)],
+            fieldChanges: [firstField]
+        )
+        let secondRecord = SourceRecordChange(
+            tableID: "todos",
+            kind: .modified,
+            primaryKeyValues: [sourceColumnValue("id", 2.databaseValue)],
+            fieldChanges: [secondField]
+        )
+        let firstComparison = AnySourceFieldComparison(
+            SourceFieldComparison(
+                change: firstField,
+                baseline: "before-1",
+                working: "after-1"
+            )
+        )
+        let secondComparison = AnySourceFieldComparison(
+            SourceFieldComparison(
+                change: secondField,
+                baseline: "before-2",
+                working: "after-2"
+            )
+        )
+        var comparisons = SourceFieldComparisons.empty
+        comparisons.insert(firstComparison, for: firstRecord)
+        comparisons.insert(secondComparison, for: secondRecord)
+
+        expectNoDifference(
+            comparisons[firstRecord, firstField]?.as(String.self)?.working,
+            "after-1"
+        )
+        expectNoDifference(
+            comparisons[secondRecord, secondField]?.as(String.self)?.working,
+            "after-2"
+        )
+    }
+
+    @Test
+    func recordTypeResolversCanSuppressCandidateChangesAndRecomputeCounts() throws {
+        let fixture = try SourceEditingFixture()
+        try fixture.updateWorking(id: 2, title: "New title")
+
+        let summary = try fixture.typedSummary(
+            recordTypes: [
+                AnySourceEditableRecordType(
+                    descriptor: Todo.sourceDescriptor,
+                    resolveRecordChange: { _, _, _ in nil }
+                )
+            ],
+            scope: listScope("list-1")
+        )
+
+        expectNoDifference(
+            summary.groups,
+            [
+                SourceChangeGroup(
+                    id: "todos",
+                    displayName: "Todo",
+                    added: 0,
+                    modified: 0,
+                    deleted: 0
+                )
+            ]
+        )
+        #expect(summary.totalCount == 0)
+    }
+
+    @Test
+    func schemaMismatchReturnsUnavailableSummary() throws {
+        let fixture = try SourceEditingFixture(createBaselineTable: false)
+        try fixture.createBaselineTable(columns: [
+            #""id" INTEGER PRIMARY KEY NOT NULL"#,
+            #""listID" TEXT NOT NULL"#,
+            #""note" TEXT"#,
+            #""localCache" TEXT"#,
+        ])
+
+        let summary = try fixture.summary(scope: listScope("list-1"))
+
+        expectNoDifference(
+            summary,
+            SourceChangeSummary(
+                availability: .unavailable(
+                    .schemaMismatch([
+                        SourceSchemaMismatch(
+                            role: .baseline,
+                            tableName: "todos",
+                            missingColumnNames: ["title"]
+                        )
+                    ])
+                ),
+                groups: []
+            )
+        )
+    }
+
+    @Test
+    func explicitWorkingAndReferenceDatabasesProduceSummaries() throws {
+        let fixture = try SourceEditingFixture()
+
+        try fixture.workingDatabase.writeWithoutTransaction { db in
+            try Todo
+                .find(2)
+                .update { $0.title = "Changed through default" }
+                .execute(db)
+        }
+
+        let summary = try fixture.workingDatabase.read { workingDatabase in
+            try fixture.baselineDatabase.read { baselineDatabase in
+                try SourceEditingComparer().summary(
+                    workingDatabase: workingDatabase,
+                    baselineDatabase: baselineDatabase,
+                    descriptors: [Todo.sourceDescriptor],
+                    scope: listScope("list-1")
+                )
+            }
+        }
+
+        expectNoDifference(
+            summary,
+            SourceChangeSummary(
+                availability: .available,
+                groups: [
+                    SourceChangeGroup(
+                        id: "todos",
+                        displayName: "Todo",
+                        added: 0,
+                        modified: 1,
+                        deleted: 0,
+                        records: [
+                            SourceRecordChange(
+                                tableID: "todos",
+                                kind: .modified,
+                                primaryKeyValues: [
+                                    sourceColumnValue("id", 2.databaseValue)
+                                ],
+                                fieldChanges: [
+                                    sourceFieldChange(
+                                        "title",
+                                        baselineValue: "Old title".databaseValue,
+                                        workingValue: "Changed through default".databaseValue
+                                    )
+                                ]
+                            )
+                        ]
+                    )
+                ]
+            )
+        )
+    }
+
+    @Test
+    func workingDatabaseDoesNotAttachTheReferenceDatabase() throws {
+        let fixture = try SourceEditingFixture()
+
+        try fixture.workingDatabase.read { db in
+            let attachedDatabaseNames = try String.fetchAll(
+                db,
+                sql: "SELECT name FROM pragma_database_list"
+            )
+            expectNoDifference(attachedDatabaseNames, ["main"])
+        }
+    }
+
+    @Test
+    func resetRestoresScopedDefaultChangesFromExplicitReference() throws {
+        let fixture = try SourceEditingFixture()
+
+        try fixture.updateWorking(id: 2, title: "Changed through default")
+        try fixture.deleteWorking(id: 3)
+        try fixture.updateWorking(id: 4, localCache: "new local cache")
+        try fixture.updateWorking(id: 5, title: "Other list changed")
+        try fixture.insertWorking(
+            Todo(
+                id: 6,
+                listID: "list-1",
+                title: "Added",
+                note: nil,
+                localCache: "added local cache"
+            )
+        )
+
+        try fixture.workingDatabase.write { workingDatabase in
+            try fixture.baselineDatabase.read { baselineDatabase in
+                try SourceEditingResetter().reset(
+                    workingDatabase: workingDatabase,
+                    baselineDatabase: baselineDatabase,
+                    descriptors: [Todo.sourceDescriptor],
+                    scope: listScope("list-1")
+                )
+            }
+        }
+
+        let summary = try fixture.workingDatabase.read { workingDatabase in
+            try fixture.baselineDatabase.read { baselineDatabase in
+                try SourceEditingComparer().summary(
+                    workingDatabase: workingDatabase,
+                    baselineDatabase: baselineDatabase,
+                    descriptors: [Todo.sourceDescriptor],
+                    scope: listScope("list-1")
+                )
+            }
+        }
+        expectNoDifference(
+            summary,
+            SourceChangeSummary(
+                availability: .available,
+                groups: [
+                    SourceChangeGroup(
+                        id: "todos",
+                        displayName: "Todo",
+                        added: 0,
+                        modified: 0,
+                        deleted: 0
+                    )
+                ]
+            )
+        )
+
+        let listOneRecords = try fixture.workingDatabase.read { db in
+            try Todo
+                .where { $0.listID.eq("list-1") }
+                .fetchAll(db)
+                .sorted { $0.id < $1.id }
+        }
+        expectNoDifference(
+            listOneRecords,
+            [
+                Todo(id: 1, listID: "list-1", title: "Title", note: nil, localCache: nil),
+                Todo(id: 2, listID: "list-1", title: "Old title", note: nil, localCache: nil),
+                Todo(id: 3, listID: "list-1", title: "Deleted candidate", note: nil, localCache: nil),
+                Todo(id: 4, listID: "list-1", title: "Ignored cache", note: nil, localCache: "new local cache"),
+            ]
+        )
+
+        let otherListRecord = try #require(
+            try fixture.workingDatabase.read { db in
+                try Todo.find(5).fetchOne(db)
+            }
+        )
+        expectNoDifference(
+            otherListRecord,
+            Todo(id: 5, listID: "list-2", title: "Other list changed", note: nil, localCache: nil)
+        )
+    }
+}
+
+private final class SourceEditingIssueRecorder: @unchecked Sendable, IssueReporter {
+    private let lock = NSLock()
+    private var recordedMessages: [String] = []
+
+    var messages: [String] {
+        lock.withLock { recordedMessages }
+    }
+
+    func reportIssue(
+        _ message: @autoclosure () -> String?,
+        severity: IssueSeverity,
+        fileID: StaticString,
+        filePath: StaticString,
+        line: UInt,
+        column: UInt
+    ) {
+        lock.withLock {
+            recordedMessages.append(message() ?? "")
+        }
+    }
+}
+
+private final class SourceEditingFixture {
+    let workingDatabasePath: String
+    let workingDatabase: any DatabaseWriter
+    let baselineDatabase: SourceBaselineDatabase
+
+    init(createBaselineTable: Bool = true) throws {
+        self.workingDatabasePath = FileManager.default.temporaryDirectory
+            .appending(path: "SourceEditingTests-\(UUID().uuidString)")
+            .appendingPathExtension("sqlite")
+            .path
+        self.baselineDatabase = try defaultBaselineDatabase()
+        self.workingDatabase = try DatabasePool(path: workingDatabasePath)
+
+        try workingDatabase.write { db in
+            try createTodosTable(in: db)
+        }
+        if createBaselineTable {
+            try baselineDatabase.write { db in
+                try createTodosTable(in: db)
+            }
+        }
+
+        try insertWorking(Self.records)
+        if createBaselineTable {
+            try insertBaseline(Self.records)
+        }
+    }
+
+    deinit {
+        try? FileManager.default.removeItem(atPath: workingDatabasePath)
+        try? FileManager.default.removeItem(atPath: baselineDatabase.path)
+    }
+
+    static var records: [Todo] {
+        [
+            Todo(id: 1, listID: "list-1", title: "Title", note: nil, localCache: nil),
+            Todo(id: 2, listID: "list-1", title: "Old title", note: nil, localCache: nil),
+            Todo(id: 3, listID: "list-1", title: "Deleted candidate", note: nil, localCache: nil),
+            Todo(id: 4, listID: "list-1", title: "Ignored cache", note: nil, localCache: "old"),
+            Todo(id: 5, listID: "list-2", title: "Other list", note: nil, localCache: nil),
+        ]
+    }
+
+    func createBaselineTable(columns: [String]) throws {
+        try baselineDatabase.write { db in
+            let columnDefinitions = columns.joined(separator: ", ")
+            try SQLQueryExpression(
+                """
+                CREATE TABLE "todos" (
+                  \(raw: columnDefinitions)
+                ) STRICT
+                """
+            )
+            .execute(db)
+        }
+    }
+
+    func insertWorking(_ records: [Todo]) throws {
+        try workingDatabase.write { db in
+            try Todo.insert { records }.execute(db)
+        }
+    }
+
+    func insertWorking(_ record: Todo) throws {
+        try insertWorking([record])
+    }
+
+    func insertWorking(_ record: TypedTodo) throws {
+        try workingDatabase.write { db in
+            try TypedTodo.insert { record }.execute(db)
+        }
+    }
+
+    func insertWorking(_ record: TodoLabel) throws {
+        try workingDatabase.write { db in
+            try TodoLabel.insert { record }.execute(db)
+        }
+    }
+
+    func insertBaseline(_ records: [Todo]) throws {
+        try baselineDatabase.write { db in
+            try Todo.insert { records }.execute(db)
+        }
+    }
+
+    func insertBaseline(_ record: TypedTodo) throws {
+        try baselineDatabase.write { db in
+            try TypedTodo.insert { record }.execute(db)
+        }
+    }
+
+    func insertBaseline(_ record: TodoLabel) throws {
+        try baselineDatabase.write { db in
+            try TodoLabel.insert { record }.execute(db)
+        }
+    }
+
+    func updateWorking(
+        id: Todo.ID,
+        title: String? = nil,
+        note: String? = nil,
+        localCache: String? = nil
+    ) throws {
+        try workingDatabase.write { db in
+            var record = try Todo.find(id).fetchOne(db)!
+            if let title {
+                record.title = title
+            }
+            if let note {
+                record.note = note
+            }
+            if let localCache {
+                record.localCache = localCache
+            }
+            try Todo.update(record).execute(db)
+        }
+    }
+
+    func deleteWorking(id: Todo.ID) throws {
+        try workingDatabase.write { db in
+            try Todo.find(id).delete().execute(db)
+        }
+    }
+
+    func createTypedTodosTable() throws {
+        try workingDatabase.write { db in
+            try createTypedTodosSQLTable(in: db)
+        }
+        try baselineDatabase.write { db in
+            try createTypedTodosSQLTable(in: db)
+        }
+    }
+
+    func createTodoLabelsTable() throws {
+        try workingDatabase.write { db in
+            try createTodoLabelsSQLTable(in: db)
+        }
+        try baselineDatabase.write { db in
+            try createTodoLabelsSQLTable(in: db)
+        }
+    }
+
+    func updateWorkingTypedTodoAttachment(
+        id: TypedTodo.ID,
+        attachment: TodoAttachment
+    ) throws {
+        try workingDatabase.write { db in
+            var record = try TypedTodo.find(id).fetchOne(db)!
+            record.attachment = attachment
+            try TypedTodo.update(record).execute(db)
+        }
+    }
+
+    func updateWorkingTypedTodoAttachmentRaw(
+        id: TypedTodo.ID,
+        attachment: String
+    ) throws {
+        try workingDatabase.write { db in
+            try db.execute(
+                sql: #"UPDATE "typed_todos" SET "attachment" = ? WHERE "id" = ?"#,
+                arguments: [attachment, id]
+            )
+        }
+    }
+
+    func summary(scope: SourceRecordScope = .all) throws -> SourceChangeSummary {
+        try workingDatabase.read { workingDatabase in
+            try baselineDatabase.read { baselineDatabase in
+                try SourceEditingComparer().summary(
+                    workingDatabase: workingDatabase,
+                    baselineDatabase: baselineDatabase,
+                    descriptors: [Todo.sourceDescriptor],
+                    scope: scope
+                )
+            }
+        }
+    }
+
+    func typedSummary(
+        recordTypes: [AnySourceEditableRecordType] = [Todo.sourceRecordType],
+        scope: SourceRecordScope = .all
+    ) throws -> SourceChangeSummary {
+        try workingDatabase.read { workingDatabase in
+            try baselineDatabase.read { baselineDatabase in
+                try SourceEditingComparer().summary(
+                    workingDatabase: workingDatabase,
+                    baselineDatabase: baselineDatabase,
+                    recordTypes: recordTypes,
+                    scope: scope
+                )
+            }
+        }
+    }
+
+    func typedTodoSummary(
+        recordType: AnySourceEditableRecordType = TypedTodo.sourceRecordType,
+        scope: SourceRecordScope = .all
+    ) throws -> SourceChangeSummary {
+        try workingDatabase.read { workingDatabase in
+            try baselineDatabase.read { baselineDatabase in
+                try SourceEditingComparer().summary(
+                    workingDatabase: workingDatabase,
+                    baselineDatabase: baselineDatabase,
+                    recordTypes: [recordType],
+                    scope: scope
+                )
+            }
+        }
+    }
+}
+
+private func createTodosTable(in db: Database) throws {
+    try #sql("""
+        CREATE TABLE "todos" (
+          "id" INTEGER PRIMARY KEY NOT NULL,
+          "listID" TEXT NOT NULL,
+          "title" TEXT NOT NULL,
+          "note" TEXT,
+          "localCache" TEXT
+        ) STRICT
+        """)
+        .execute(db)
+}
+
+private func createTypedTodosSQLTable(in db: Database) throws {
+    try #sql("""
+        CREATE TABLE "typed_todos" (
+          "id" INTEGER PRIMARY KEY NOT NULL,
+          "attachment" TEXT NOT NULL
+        ) STRICT
+        """)
+        .execute(db)
+}
+
+private func createTodoLabelsSQLTable(in db: Database) throws {
+    try #sql("""
+        CREATE TABLE "todo_labels" (
+          "id" INTEGER PRIMARY KEY NOT NULL,
+          "listID" TEXT NOT NULL,
+          "title" TEXT NOT NULL
+        ) STRICT
+        """)
+        .execute(db)
+}
+
+private func listScope(_ listID: String) -> SourceRecordScope {
+    SourceRecordScope(
+        filters: [
+            SourceRecordScope.Filter(
+                columnName: "listID",
+                value: listID.queryBinding
+            )
+        ]
+    )
+}
+
+private func sourceColumnValue(
+    _ columnName: String,
+    _ value: DatabaseValue
+) -> SourceColumnValue {
+    SourceColumnValue(
+        columnName: columnName,
+        value: value
+    )
+}
+
+private func sourceFieldChange(
+    _ columnName: String,
+    baselineValue: DatabaseValue? = nil,
+    workingValue: DatabaseValue? = nil
+) -> SourceFieldChange {
+    SourceFieldChange(
+        columnName: columnName,
+        baselineValue: baselineValue,
+        workingValue: workingValue
+    )
+}

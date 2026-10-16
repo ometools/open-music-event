@@ -1,0 +1,5 @@
+appId: ${APP_ID}
+---
+- extendedWaitUntil:
+    visible: {id: 'row.account.${ACCOUNT_DID}', text: '.*${ACCOUNT_HANDLE}.*${ACCOUNT_STATUS}.*'}
+    timeout: 30000
