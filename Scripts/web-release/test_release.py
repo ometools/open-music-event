@@ -116,7 +116,7 @@ class PromotionTests(unittest.TestCase):
         self.candidate = {
             "sourceRevision": self.revision,
             "artifactSHA256": self.digest,
-            "artifactKey": f"web/artifacts/{self.digest}.tar.gz",
+            "artifactKey": f"server/artifacts/{self.digest}.tar.gz",
         }
         self.tests = b'<testsuite><testcase name="web"/></testsuite>'
         self.manifest = json.dumps({"sourceRevision": self.revision}).encode()
@@ -128,10 +128,10 @@ class PromotionTests(unittest.TestCase):
         }
         self.objects = {
             pipeline.candidate_key(self.revision): json.dumps(self.candidate).encode(),
-            f"web/releases/{self.revision}/staging.json": json.dumps(self.receipt).encode(),
+            f"server/releases/{self.revision}/staging.json": json.dumps(self.receipt).encode(),
             self.candidate["artifactKey"]: self.archive,
-            f"web/releases/{self.revision}/tests.xml": self.tests,
-            f"web/releases/{self.revision}/verified-manifest.json": self.manifest,
+            f"server/releases/{self.revision}/tests.xml": self.tests,
+            f"server/releases/{self.revision}/verified-manifest.json": self.manifest,
         }
         objects = self.objects
         class Store:
@@ -164,15 +164,15 @@ class PromotionTests(unittest.TestCase):
             deploy.side_effect = check
             pipeline.main()
             deploy.assert_called_once()
-        self.assertIn(f"web/releases/{self.revision}/production.json", self.objects)
+        self.assertIn(f"server/releases/{self.revision}/production.json", self.objects)
 
     def test_missing_staging_proof_stops_before_deployment(self):
-        del self.objects[f"web/releases/{self.revision}/staging.json"]
+        del self.objects[f"server/releases/{self.revision}/staging.json"]
         self.assert_stopped()
 
     def test_another_artifacts_staging_proof_cannot_approve_this_artifact(self):
         self.receipt["artifactSHA256"] = "b" * 64
-        self.objects[f"web/releases/{self.revision}/staging.json"] = json.dumps(self.receipt).encode()
+        self.objects[f"server/releases/{self.revision}/staging.json"] = json.dumps(self.receipt).encode()
         self.assert_stopped()
 
     def test_changed_stored_artifact_stops_before_deployment(self):
@@ -192,7 +192,7 @@ class PromotionTests(unittest.TestCase):
         with patch("pipeline.deploy", side_effect=ValueError("Smoke failed")), \
                 contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             pipeline.main()
-        self.assertNotIn(f"web/releases/{self.revision}/production.json", self.objects)
+        self.assertNotIn(f"server/releases/{self.revision}/production.json", self.objects)
 
 
     def test_pipeline_retry_reuses_original_artifact_and_test_evidence(self):
@@ -214,12 +214,55 @@ class PromotionTests(unittest.TestCase):
 
     def test_changed_stored_test_evidence_cannot_be_repaired_by_rebuilding(self):
         os.environ["TANGLED_PIPELINE_KIND"] = "push"
-        self.objects[f"web/releases/{self.revision}/tests.xml"] = b"changed report"
+        self.objects[f"server/releases/{self.revision}/tests.xml"] = b"changed report"
         with patch.object(sys, "argv", ["pipeline.py", "build"]), patch("pipeline.ROOT", self.root), \
                 patch("pipeline.command") as command, contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit):
                 pipeline.main()
             command.assert_not_called()
+
+    def test_stage_publishes_server_evidence_and_promotes_the_same_archive(self):
+        # A fresh build contains the executable/site archive and its validation evidence.
+        output = self.root / ".build/web-release"
+        output.mkdir(parents=True)
+        (output / "appview.tar.gz").write_bytes(self.archive)
+        (output / "tests.xml").write_bytes(self.tests)
+        (output / "verified-manifest.json").write_bytes(self.manifest)
+        self.objects.clear()
+        os.environ["TANGLED_PIPELINE_KIND"] = "push"
+
+        def verify_deployed_bytes(candidate, archive, environment):
+            self.assertEqual(archive.read_bytes(), self.archive)
+            self.assertEqual(candidate["artifactKey"], f"server/artifacts/{self.digest}.tar.gz")
+
+        with patch("pipeline.ROOT", self.root), \
+                patch("pipeline.deploy", side_effect=verify_deployed_bytes) as deploy, \
+                patch("pipeline.command", side_effect=AssertionError("Stored artifact must not rebuild")), \
+                contextlib.redirect_stdout(io.StringIO()):
+            with patch.object(sys, "argv", ["pipeline.py", "stage"]):
+                pipeline.main()
+
+            # Staging writes the complete server release contract.
+            prefix = f"server/releases/{self.revision}"
+            self.assertEqual(set(self.objects), {
+                f"server/artifacts/{self.digest}.tar.gz",
+                f"{prefix}/candidate.json",
+                f"{prefix}/tests.xml",
+                f"{prefix}/verified-manifest.json",
+                f"{prefix}/staging.json",
+            })
+            self.assertEqual(deploy.call_args.args[2], "staging")
+            candidate = json.loads(self.objects[f"{prefix}/candidate.json"])
+            self.assertEqual(candidate, self.candidate)
+
+            # Manual production approval consumes that exact candidate and staging receipt.
+            os.environ["TANGLED_PIPELINE_KIND"] = "manual"
+            with patch.object(sys, "argv", ["pipeline.py", "promote"]):
+                pipeline.main()
+            self.assertEqual(deploy.call_count, 2)
+            self.assertEqual(deploy.call_args.args[2], "production")
+            production = json.loads(self.objects[f"{prefix}/production.json"])
+            self.assertEqual(production["artifactSHA256"], self.digest)
 
     def assert_stopped(self):
         with patch("pipeline.deploy") as deploy, contextlib.redirect_stderr(io.StringIO()):
@@ -229,8 +272,45 @@ class PromotionTests(unittest.TestCase):
             deploy.assert_not_called()
 
 
+class ConfigurationTests(unittest.TestCase):
+    def setUp(self):
+        self.environment = {
+            "TANGLED_SHA": "a" * 40,
+            "TANGLED_PIPELINE_KIND": "push",
+            "TANGLED_REF": "refs/heads/main",
+            "OME_RELEASE_BUCKET": "openmusicevent-releases",
+            "AWS_REGION": "us-west-2",
+            "GITHUB_TOKEN": "fixture-token",
+            "OME_STAGING_SSH_HOST": "stg.example.test",
+            "OME_STAGING_SSH_USER": "deploy",
+            "OME_STAGING_SERVICE": "ome-appview-canary.service",
+            "OME_STAGING_DATABASE": "/srv/ome-appview/data/canary/appview.sqlite",
+            "OME_STAGING_URL": "https://stg.example.test",
+            "OME_STAGING_SSH_KEY": "fixture-key",
+            "OME_STAGING_KNOWN_HOSTS": "fixture-host-key",
+        }
+
+    def test_preflight_and_store_accept_the_ome_release_bucket(self):
+        with patch.dict(os.environ, self.environment, clear=True), \
+                patch.object(sys, "argv", ["pipeline.py", "preflight"]), \
+                contextlib.redirect_stdout(io.StringIO()), \
+                patch("pipeline.subprocess.run", side_effect=AssertionError("Preflight must not deploy")):
+            pipeline.main()
+            self.assertEqual(pipeline.ReleaseStore().bucket, "openmusicevent-releases")
+
+    def test_old_bucket_setting_does_not_satisfy_preflight(self):
+        self.environment["OME_WEB_RELEASE_BUCKET"] = self.environment.pop("OME_RELEASE_BUCKET")
+        stderr = io.StringIO()
+        with patch.dict(os.environ, self.environment, clear=True), \
+                patch.object(sys, "argv", ["pipeline.py", "preflight"]), \
+                contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as result:
+            pipeline.main()
+        self.assertEqual(result.exception.code, 1)
+        self.assertIn("Missing CI settings: OME_RELEASE_BUCKET", stderr.getvalue())
+
+
 class StoreTests(unittest.TestCase):
-    @patch.dict(os.environ, {"OME_WEB_RELEASE_BUCKET": "example", "AWS_REGION": "us-west-2"})
+    @patch.dict(os.environ, {"OME_RELEASE_BUCKET": "example", "AWS_REGION": "us-west-2"})
     def test_existing_identical_object_is_idempotent_but_different_bytes_are_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "object"

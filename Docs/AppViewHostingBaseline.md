@@ -6,6 +6,180 @@ The AppView origin is intended to serve `openmusicevent.app`, `ome.social`,
 `openmusic.events`, `opencomedy.events`, `openconferences.events`, and
 `openmusicevent.live`, including their configured `www` aliases.
 
+## CI release storage and promotion
+
+The private `openmusicevent-releases` bucket belongs to OME as a whole.
+Keep it separate from the public resources/source-artifact bucket configured by
+`OME_SOURCE_ARTIFACT_S3_BUCKET`; the service's source-artifact writer does not
+need access to deployment releases.
+
+Set `OME_RELEASE_BUCKET=openmusicevent-releases`, without `s3://` or a prefix.
+Object keys start with `server/`, with no leading slash.
+The current AppView artifact contains the executable, Swift runtime libraries,
+and bundled website/globe assets. Its storage layout is:
+
+```text
+server/
+  artifacts/<archive-sha256>.tar.gz
+  releases/<source-commit>/
+    candidate.json
+    tests.xml
+    verified-manifest.json
+    staging.json
+    production.json
+ios/       # Reserved for a future mobile pipeline.
+android/   # Reserved for a future mobile pipeline.
+```
+
+Only `server/` is implemented. A future independently deployed frontend could
+use `web/`; the website currently ships inside the AppView artifact.
+The local tooling directory remains `Scripts/web-release/`.
+
+A push to `main` runs the Linux build, tests, generated-schema check, and packaged
+HTTP smoke check before uploading a candidate and deploying staging. A successful
+staging deployment records its source revision and artifact digest. The manual
+production workflow requires that staging receipt and deploys the same stored
+archive without rebuilding. Retries reuse the candidate and verify its stored
+test report, manifest, and archive hashes.
+
+### Bucket and credential setup
+
+Provision a private general-purpose S3 bucket with all Block Public Access
+settings enabled, Bucket owner enforced Object Ownership (ACLs disabled),
+server-side encryption, and versioning. SSE-S3 is sufficient for this setup;
+SSE-KMS additionally requires permission to use the selected KMS key. Require TLS
+and conditional writes with bucket policy. Retention must preserve candidates,
+their evidence, and archives needed for promotion or recovery.
+
+The workflows currently select `AWS_REGION=us-west-2`. If the bucket uses another
+region, update both deployment and promotion workflow configuration together.
+
+In Tangled repository Settings -> Secrets, configure:
+
+| Setting | Value |
+| --- | --- |
+| `OME_RELEASE_BUCKET` | `openmusicevent-releases` |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Credentials scoped to the release bucket; include `AWS_SESSION_TOKEN` when using temporary credentials. |
+| `GITHUB_TOKEN` | Read access to private build dependencies. |
+| `OME_STAGING_SSH_KEY` | Dedicated CI deployment private key. |
+| `OME_STAGING_KNOWN_HOSTS` | Verified SSH host-key entry matching the staging SSH target. |
+
+Staging host, username, service, database path, and HTTPS origin are declared in
+`.tangled/workflows/deploy.yml`; verify them against the existing host. The
+installer requires the existing service/database, Linux x86-64, Ubuntu 24.04,
+and noninteractive permission to run the installer through `sudo`.
+
+Production uses the same bucket and separately configured
+`OME_PRODUCTION_SSH_HOST`, `OME_PRODUCTION_SSH_USER`,
+`OME_PRODUCTION_SERVICE`, `OME_PRODUCTION_DATABASE`,
+`OME_PRODUCTION_URL`, `OME_PRODUCTION_SSH_KEY`, and
+`OME_PRODUCTION_KNOWN_HOSTS`. Select the validated `main` revision when manually
+running `promote.yml`. Verify production credential isolation from PR/build jobs
+before adding production access; a manual trigger alone is not an access boundary.
+
+Before changing permissions on the AWS credentials already stored in Tangled,
+the manual `.tangled/workflows/aws-identity.yml` workflow can identify their IAM
+user or role. Its sole command is
+`aws sts get-caller-identity --query Arn --output text`. It skips repository
+cloning and prints only the caller's ARN, without printing credentials or
+environment variables. It does not build, deploy, or mutate AWS resources.
+See Tangled's [manual trigger documentation](https://docs.tangled.org/spindles#trigger).
+Adding the workflow does not run it.
+
+Use temporary AWS credentials where the CI identity integration supports them;
+otherwise use a dedicated, narrowly scoped identity. This identity-policy example
+supports the current server pipeline. It grants no mobile-prefix writes,
+deletion, or bucket administration; the public resource-bucket writer should remain separate.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "InspectReleaseBucket",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::openmusicevent-releases"
+    },
+    {
+      "Sid": "ReadAndCreateServerReleases",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject"],
+      "Resource": "arn:aws:s3:::openmusicevent-releases/server/*"
+    }
+  ]
+}
+```
+
+`ListBucket` also allows S3 to report a missing candidate as `NoSuchKey` instead
+of an indistinguishable access-denied response. Apply this bucket-policy example
+alongside Block Public Access and the identity policy:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "RequireTLS",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:*",
+      "Resource": [
+        "arn:aws:s3:::openmusicevent-releases",
+        "arn:aws:s3:::openmusicevent-releases/*"
+      ],
+      "Condition": {"Bool": {"aws:SecureTransport": "false"}}
+    },
+    {
+      "Sid": "RequireCreateOnlyServerUploads",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::openmusicevent-releases/server/*",
+      "Condition": {"Null": {"s3:if-none-match": "true"}}
+    }
+  ]
+}
+```
+
+The pipeline uses `PutObject` with `If-None-Match: *` for archives, manifests,
+test reports, and receipts. The policy enforces that condition; checksums detect
+changed content. Versioning is recovery support, not a substitute for restricting
+overwrite/deletion permissions. See AWS guidance for
+[S3 security](https://docs.aws.amazon.com/AmazonS3/latest/userguide/security-best-practices.html),
+[conditional-write enforcement](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes-enforce.html),
+and [IAM credentials](https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html).
+
+### Initial rollout and older configuration
+
+The initial [main deployment run on 2026-10-16](https://tangled.org/woody.fm/open-music-event/pipelines/3mxyzdwzh2z22/workflow/deploy.yml)
+stopped in preflight because `OME_WEB_RELEASE_BUCKET` and the staging SSH settings
+were missing. It did not build or publish a candidate, and no later deployment
+run was listed when this change was prepared. S3 inventory was unavailable with
+the local AWS identity, so that evidence does not establish that every bucket is
+empty.
+
+For this initial rollout, configure `OME_RELEASE_BUCKET` and use the
+`server/` layout directly. No object migration is needed for that failed run.
+There is no fallback to the former setting or prefix.
+
+If another environment has since used `OME_WEB_RELEASE_BUCKET` or published
+`web/` objects, first inspect that bucket and preserve its releases:
+
+```sh
+aws s3api list-objects-v2 \
+  --bucket "<previous-release-bucket>" --region "<previous-aws-region>" \
+  --prefix web/ --max-items 20 --query 'Contents[].Key'
+```
+
+Configure the new setting and server-prefix permissions before running the new
+workflow.
+Keep old objects and receipts intact; copying them does not make an old
+`artifactKey` or staging receipt valid for the new layout. Build and validate the
+next source revision under `server/`, deploy it to staging, and promote only
+after its new staging receipt exists. Do not remove old configuration still used
+by another environment.
+
 ## Current Surface
 
 - `OpenMusicEventAppView`: Hummingbird executable.

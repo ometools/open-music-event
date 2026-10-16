@@ -1,0 +1,19 @@
+when:
+  - event: ["manual"]
+
+engine: microvm
+image: nixos
+
+clone:
+  skip: true
+
+dependencies:
+  - awscli2
+
+environment:
+  AWS_REGION: us-west-2
+  AWS_PAGER: ""
+
+steps:
+  - name: Identify the AWS principal used by CI
+    command: aws sts get-caller-identity --query Arn --output text

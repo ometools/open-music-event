@@ -1,4 +1,4 @@
-# Secrets: GITHUB_TOKEN, AWS credentials, OME_WEB_RELEASE_BUCKET,
+# Secrets: GITHUB_TOKEN, AWS credentials, OME_RELEASE_BUCKET,
 # OME_STAGING_SSH_KEY, OME_STAGING_KNOWN_HOSTS. Keep credentials out of this file.
 when:
   - event: ["push"]

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tangled's web pipeline: publish once, stage automatically, promote the staged digest."""
+"""Tangled's AppView pipeline: publish once, stage automatically, promote the staged digest."""
 import argparse
 import hashlib
 import json
@@ -31,7 +31,7 @@ def command(*args, **kwargs):
 
 class ReleaseStore:
     def __init__(self):
-        self.bucket = required("OME_WEB_RELEASE_BUCKET")
+        self.bucket = required("OME_RELEASE_BUCKET")
         self.region = required("AWS_REGION")
 
     def get(self, key, path, optional=False):
@@ -62,7 +62,7 @@ class ReleaseStore:
 
 
 def candidate_key(revision):
-    return f"web/releases/{revision}/candidate.json"
+    return f"server/releases/{revision}/candidate.json"
 
 
 def load_candidate(store, revision, directory):
@@ -72,7 +72,7 @@ def load_candidate(store, revision, directory):
     digest = candidate.get("artifactSHA256", "")
     if candidate.get("sourceRevision") != revision or not re.fullmatch(r"[0-9a-f]{64}", digest):
         raise ValueError("Invalid candidate identity")
-    if candidate.get("artifactKey") != f"web/artifacts/{digest}.tar.gz":
+    if candidate.get("artifactKey") != f"server/artifacts/{digest}.tar.gz":
         raise ValueError("Invalid artifact storage key")
     return candidate
 
@@ -137,7 +137,7 @@ def main():
         if kind != expected_kind:
             raise ValueError(f"{args.action} requires a {expected_kind} pipeline")
         if args.action == "preflight":
-            names = ["OME_WEB_RELEASE_BUCKET", "AWS_REGION", "GITHUB_TOKEN",
+            names = ["OME_RELEASE_BUCKET", "AWS_REGION", "GITHUB_TOKEN",
                      "OME_STAGING_SSH_HOST", "OME_STAGING_SSH_USER", "OME_STAGING_SERVICE",
                      "OME_STAGING_DATABASE", "OME_STAGING_URL",
                      "OME_STAGING_SSH_KEY", "OME_STAGING_KNOWN_HOSTS"]
@@ -156,8 +156,8 @@ def main():
                     output.mkdir(parents=True, exist_ok=True)
                     for key, filename, checksum in (
                         (candidate["artifactKey"], "appview.tar.gz", candidate["artifactSHA256"]),
-                        (f"web/releases/{revision}/tests.xml", "tests.xml", candidate["testReportSHA256"]),
-                        (f"web/releases/{revision}/verified-manifest.json", "verified-manifest.json", candidate["manifestSHA256"]),
+                        (f"server/releases/{revision}/tests.xml", "tests.xml", candidate["testReportSHA256"]),
+                        (f"server/releases/{revision}/verified-manifest.json", "verified-manifest.json", candidate["manifestSHA256"]),
                     ):
                         path = output / filename
                         store.get(key, path)
@@ -179,17 +179,17 @@ def main():
                 manifest = json.loads((output / "verified-manifest.json").read_text())
                 if manifest["sourceRevision"] != revision:
                     raise ValueError("Built artifact is from another source revision")
-                candidate["artifactKey"] = f"web/artifacts/{candidate['artifactSHA256']}.tar.gz"
+                candidate["artifactKey"] = f"server/artifacts/{candidate['artifactSHA256']}.tar.gz"
                 store.put_once(candidate["artifactKey"], archive)
                 for filename in ("tests.xml", "verified-manifest.json"):
-                    store.put_once(f"web/releases/{revision}/{filename}", output / filename)
+                    store.put_once(f"server/releases/{revision}/{filename}", output / filename)
                 path = directory / "candidate.json"
                 path.write_text(json.dumps(candidate, sort_keys=True) + "\n")
                 store.put_once(candidate_key(revision), path)
             candidate = load_candidate(store, revision, directory)
             if args.action == "promote":
                 receipt_file = directory / "staging.json"
-                store.get(f"web/releases/{revision}/staging.json", receipt_file)
+                store.get(f"server/releases/{revision}/staging.json", receipt_file)
                 require_staging_receipt(candidate, json.loads(receipt_file.read_text()))
             archive = directory / "appview.tar.gz"
             store.get(candidate["artifactKey"], archive)
@@ -202,7 +202,7 @@ def main():
                 "sourceRevision": revision, "artifactSHA256": candidate["artifactSHA256"],
                 "environment": environment, "result": "passed"
             }, sort_keys=True) + "\n")
-            store.put_once(f"web/releases/{revision}/{environment}.json", receipt)
+            store.put_once(f"server/releases/{revision}/{environment}.json", receipt)
             print(f"{environment}: {revision} / {candidate['artifactSHA256']}")
     except (OSError, ValueError, KeyError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"Web pipeline stopped: {error}\n")

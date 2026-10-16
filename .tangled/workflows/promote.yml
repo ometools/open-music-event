@@ -1,5 +1,5 @@
 # Manually approve the main revision whose exact artifact passed staging.
-# Tangled settings: OME_WEB_RELEASE_BUCKET and AWS credentials.
+# Tangled settings: OME_RELEASE_BUCKET and AWS credentials.
 # Production settings: OME_PRODUCTION_SSH_HOST, OME_PRODUCTION_SSH_USER,
 # OME_PRODUCTION_SERVICE, OME_PRODUCTION_DATABASE, OME_PRODUCTION_URL,
 # OME_PRODUCTION_SSH_KEY, OME_PRODUCTION_KNOWN_HOSTS.
