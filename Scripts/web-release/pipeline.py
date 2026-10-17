@@ -113,7 +113,7 @@ def deploy(candidate, archive, environment):
             command("scp", *options, str(archive), str(ROOT / "Scripts/web-release/install.py"),
                     str(ROOT / "Scripts/web-release/artifact.py"), str(ROOT / "Scripts/web-release/smoke.sh"),
                     f"{target}:{remote}/")
-            args = ["sudo", "-n", "python3", remote + "/install.py", "--archive", remote + "/appview.tar.gz",
+            args = ["sudo", "-n", "python3", "-B", remote + "/install.py", "--archive", remote + "/appview.tar.gz",
                     "--sha256", candidate["artifactSHA256"], "--revision", candidate["sourceRevision"],
                     "--service", service, "--database", database, "--base-url", base_url,
                     "--smoke-script", remote + "/smoke.sh"]
