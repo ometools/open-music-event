@@ -12,7 +12,7 @@ import Testing
     let now = Date(timeIntervalSince1970: 1_800_000_000)
     let catalog = ATProto.NSID("community.lexicon.calendar.event")
 
-    @Test func `browse keeps venue city and publisher and infers the local zone without rewriting source data`() throws {
+    @Test func `browse keeps venue city and publisher and infers the local zone without rewriting source data`() async throws {
         let db = try DatabaseQueue()
         let store = try OpenMusicEventAppViewStore(database: db)
         var event = OME.CalendarEvent(uri: ATProto.URI("at://did:plc:venue/community.lexicon.calendar.event/concert")!,
@@ -20,14 +20,14 @@ import Testing
             locations: [.init(name: "Unmapped meeting point"),
                         .init(name: "Labor Temple", locality: "Bozeman", region: "MT", latitude: "45.68", longitude: "-111.04")],
             organizer: .init(id: DID("did:plc:venue")!), source: .init(collection: catalog))
-        try db.write { database in
+        try await db.write { [event] database in
             try CalendarEventBrowseProjection.upsert(event, now: now, in: database)
             try CalendarPublisher.where { $0.did.eq("did:plc:venue") }.update {
                 $0.displayName = #bind("Venue Calendar")
                 $0.avatarURL = #bind("https://cdn.bsky.app/img/avatar/plain/venue")
             }.execute(database)
         }
-        let row = try #require(try store.browseEventSummaries(.init(catalogs: [catalog]), now: now).events.first)
+        let row = try #require(try await store.browseEventSummaries(.init(catalogs: [catalog]), now: now).events.first)
         expectNoDifference(row.locationSummary, "Labor Temple")
         expectNoDifference(row.locality, "Bozeman")
         expectNoDifference(row.region, "MT")
@@ -35,31 +35,31 @@ import Testing
         #expect(row.country?.contains("United States") == true)
         expectNoDifference(row.publisherName, "Venue Calendar")
         expectNoDifference(row.publisherAvatarURL, "https://cdn.bsky.app/img/avatar/plain/venue")
-        let original = try db.read { try CalendarEventBrowseProjection.find(event.uri.description).select(\.event).fetchOne($0) }
+        let original = try await db.read { [event] in try CalendarEventBrowseProjection.find(event.uri.description).select(\.event).fetchOne($0) }
         expectNoDifference(try JSONDecoder().decode(OME.CalendarEvent.self, from: #require(original)).timeZoneIdentifier, nil)
-        let detail = try #require(try store.calendarEvent(uri: event.uri, appViewHost: "localhost"))
+        let detail = try #require(try await store.calendarEvent(uri: event.uri, appViewHost: "localhost"))
         expectNoDifference(detail.timeZoneIdentifier, "America/Denver")
 
         // The same record moves: cached context follows the new coordinates.
         event.locations = [.init(name: "Comedy Square", locality: "Bengaluru", latitude: "12.91", longitude: "77.64")]
-        try db.write { try CalendarEventBrowseProjection.upsert(event, now: now, in: $0) }
-        let moved = try #require(try store.browseEventSummaries(.init(catalogs: [catalog]), now: now).events.first)
+        try await db.write { [event] in try CalendarEventBrowseProjection.upsert(event, now: now, in: $0) }
+        let moved = try #require(try await store.browseEventSummaries(.init(catalogs: [catalog]), now: now).events.first)
         #expect(["Asia/Kolkata", "Asia/Calcutta"].contains(moved.timeZoneIdentifier ?? ""))
         expectNoDifference(moved.country, "India")
 
         // Explicit source information wins over geographic inference.
         event.timeZoneIdentifier = "Europe/London"
         event.locations[0].country = "Explicit country"
-        try db.write { try CalendarEventBrowseProjection.upsert(event, now: now, in: $0) }
-        let explicit = try #require(try store.browseEventSummaries(.init(catalogs: [catalog]), now: now).events.first)
+        try await db.write { [event] in try CalendarEventBrowseProjection.upsert(event, now: now, in: $0) }
+        let explicit = try #require(try await store.browseEventSummaries(.init(catalogs: [catalog]), now: now).events.first)
         expectNoDifference(explicit.timeZoneIdentifier, "Europe/London")
         expectNoDifference(explicit.country, "Explicit country")
 
         // Removing the location never leaks the old inferred location into the row.
         event.timeZoneIdentifier = nil
         event.locations = []
-        try db.write { try CalendarEventBrowseProjection.upsert(event, now: now, in: $0) }
-        let unlocated = try #require(try store.browseEventSummaries(.init(catalogs: [catalog]), now: now).events.first)
+        try await db.write { [event] in try CalendarEventBrowseProjection.upsert(event, now: now, in: $0) }
+        let unlocated = try #require(try await store.browseEventSummaries(.init(catalogs: [catalog]), now: now).events.first)
         expectNoDifference(unlocated.timeZoneIdentifier, nil)
         expectNoDifference(unlocated.country, nil)
         expectNoDifference(unlocated.locationSummary, nil)

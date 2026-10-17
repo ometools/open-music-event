@@ -113,7 +113,8 @@ enum CalendarBrowseError: Error {
 }
 
 extension OpenMusicEventAppViewStore {
-    func browseEventSummaries(_ parameters: CalendarBrowseQuery.Parameters, now: Date = .now) throws -> CalendarSummaryPage {
+    @concurrent
+    func browseEventSummaries(_ parameters: CalendarBrowseQuery.Parameters, now: Date = .now) async throws -> CalendarSummaryPage {
         let catalogs = try CalendarEventBrowseProjection.catalogs(parameters.catalogs)
         let lens = try CalendarPublisherLens(mode: parameters.publisherMode, publishers: parameters.publishers)
         let limit = parameters.limit ?? 50
@@ -134,7 +135,7 @@ extension OpenMusicEventAppViewStore {
             throw OpenMusicEventAppViewStoreError.invalidCursor(parameters.cursor ?? "")
         }
         let clock = cursor?.evaluationDate ?? now
-        let rows = try database.read { db in
+        let rows = try await database.read { db in
             typealias P = CalendarEventBrowseProjection
             let search: QueryFragment = query.map {
                 "\(P.uri) IN (SELECT \(CalendarEventBrowseSearch.uri) FROM \(CalendarEventBrowseSearch.self) WHERE \(CalendarEventBrowseSearch.searchText) MATCH \(bind: $0))"
@@ -240,12 +241,13 @@ extension OpenMusicEventAppViewStore {
         return String(value.dropFirst(3))
     }
 
-    func searchMapItems(_ parameters: CalendarSearchMapQuery.Parameters) throws -> CalendarSearchMapPage {
+    @concurrent
+    func searchMapItems(_ parameters: CalendarSearchMapQuery.Parameters) async throws -> CalendarSearchMapPage {
         guard parameters.uris.count <= 50, parameters.zoom.isFinite, (0...18).contains(parameters.zoom),
               parameters.uris.allSatisfy({ $0.count <= 2048 && ATProto.URI($0) != nil })
         else { throw CalendarBrowseError.invalidParameters }
         let started = ContinuousClock.now
-        let rows = try database.read { try Self.mapPointRows(uris: parameters.uris, in: $0) }
+        let rows = try await database.read { try Self.mapPointRows(uris: parameters.uris, in: $0) }
         let points = try rows.compactMap { row -> OME.CalendarEvent.MapPoint? in
             let latitude = row.latitude, longitude = row.longitude
             guard latitude.isFinite, longitude.isFinite,

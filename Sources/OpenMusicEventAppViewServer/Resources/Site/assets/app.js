@@ -1,3 +1,5 @@
+import { EVENT_TILE_PROTOCOL, eventTileURL, loadEventTile } from "./event-tiles.js";
+
 const DEFAULT_CONFIG = {
   xrpcURL: "/xrpc/app.openmusicevent.calendar.browseEventSummaries",
   mapItemsURL: "/xrpc/app.openmusicevent.calendar.getSearchMapItems",
@@ -380,7 +382,7 @@ function browseTileURL() {
   appendPublisherFilter(query);
   for (const catalog of [...state.selectedCatalogs].sort()) query.append("catalogs", catalog);
   query.set("dates", state.dates);
-  return `${window.location.origin}/map/events/{z}/{x}/{y}.mvt?${query}`;
+  return eventTileURL(`${window.location.origin}/map/events/{z}/{x}/{y}.mvt?${query}`);
 }
 
 function updateBrowseTiles(force = false) {
@@ -763,6 +765,7 @@ function initializeMap() {
   }
 
   try {
+    maplibregl.addProtocol(EVENT_TILE_PROTOCOL, loadEventTile);
     state.map = new maplibregl.Map({
       container: "map",
       style: config.mapStyle,

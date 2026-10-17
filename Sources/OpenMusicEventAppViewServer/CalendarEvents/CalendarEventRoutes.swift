@@ -51,7 +51,7 @@ extension OpenMusicEventAppViewServer {
 
         router.register(OME.CalendarEvent.GetEvent.self) { parameters, _ in
             guard let store,
-                  let event = try store.calendarEvent(
+                  let event = try await store.calendarEvent(
                     uri: parameters.uri,
                     appViewHost: appViewHost
                   )

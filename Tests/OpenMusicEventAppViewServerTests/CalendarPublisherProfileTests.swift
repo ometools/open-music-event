@@ -33,7 +33,7 @@ import FoundationNetworking
 
     @Test func `cached profiles are searchable keep filter identity and survive upstream failures`() async throws {
         let store = try OpenMusicEventAppViewStore(database: DatabaseQueue())
-        let before = try store.calendarPublishers(.init())
+        let before = try await store.calendarPublishers(.init())
         let did = CalendarPublisher.laughTown
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let profile = CalendarPublisherProfile(did: did, handle: "calendar.example", displayName: "Café Boulder",
@@ -47,12 +47,13 @@ import FoundationNetworking
         } operation: {
             _ = try await CalendarPublisherProfileService(store: store).refreshBatch()
         }
-        let result = try store.calendarPublishers(.init(query: "CAFE"))
+        let result = try await store.calendarPublishers(.init(query: "CAFE"))
         expectNoDifference(result.publishers.first?.label, "Café Boulder")
         expectNoDifference(result.publishers.first?.handle, "calendar.example")
         expectNoDifference(result.publishers.first?.id, before.publishers.first?.id)
         expectNoDifference(result.defaults, before.defaults)
-        expectNoDifference(try store.calendarPublishers(.init(query: "calendar.example")).publishers.count, 1)
+        let matchingPublisherCount = try await store.calendarPublishers(.init(query: "calendar.example")).publishers.count
+        expectNoDifference(matchingPublisherCount, 1)
 
         // A warm directory read and refresh do not need another network lookup.
         try await withDependencies {
@@ -70,7 +71,8 @@ import FoundationNetworking
             let delay = try await CalendarPublisherProfileService(store: store).refreshBatch()
             expectNoDifference(delay, .seconds(600))
         }
-        expectNoDifference(try store.calendarPublishers(.init()).publishers.first?.label, "Café Boulder")
+        let retainedLabel = try await store.calendarPublishers(.init()).publishers.first?.label
+        expectNoDifference(retainedLabel, "Café Boulder")
         // A successful response without the actor clears deleted metadata, not the publisher.
         try await withDependencies {
             $0.date.now = now.addingTimeInterval(87_002)
@@ -78,7 +80,7 @@ import FoundationNetworking
         } operation: {
             _ = try await CalendarPublisherProfileService(store: store).refreshBatch()
         }
-        let missing = try store.calendarPublishers(.init())
+        let missing = try await store.calendarPublishers(.init())
         expectNoDifference(missing.publishers.first?.id, before.publishers.first?.id)
         #expect(missing.publishers.first?.handle == nil)
         #expect(missing.publishers.first?.avatarURL == nil)
@@ -94,7 +96,7 @@ import FoundationNetworking
         } operation: {
             _ = try await CalendarPublisherProfileService(store: store).refreshBatch()
         }
-        let profile = try #require(try store.calendarPublishers(.init()).publishers.first)
+        let profile = try #require(try await store.calendarPublishers(.init()).publishers.first)
         #expect(profile.handle == nil)
         #expect(profile.avatarURL == nil)
         expectNoDifference(profile.label, "laugh.town")
@@ -111,7 +113,7 @@ import FoundationNetworking
         } operation: {
             _ = try await CalendarPublisherProfileService(store: store).refreshBatch()
         }
-        let profile = try #require(try store.calendarPublishers(.init()).publishers.first)
+        let profile = try #require(try await store.calendarPublishers(.init()).publishers.first)
         expectNoDifference(profile.label, "Calendar")
         #expect(profile.avatarURL == nil)
     }

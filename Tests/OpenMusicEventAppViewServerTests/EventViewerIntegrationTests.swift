@@ -75,7 +75,7 @@ import Testing
         let app = try OpenMusicEventAppViewServer.application(configuration: configuration, store: store)
         try await app.test(.router) { client in
             // Follow the actual AppView link rather than constructing a second route in the test.
-            let detail = try #require(try store.calendarEvent(uri: eventID, appViewHost: "localhost"))
+            let detail = try #require(try await store.calendarEvent(uri: eventID, appViewHost: "localhost"))
             let link = try #require(detail.links.first { $0.source == "app.openmusicevent.eventViewer" })
             expectNoDifference(link.uri.path(percentEncoded: true), openMusicEventEventPathRouter.path(for: eventID))
             try await client.execute(uri: link.uri.path(percentEncoded: true), method: .get) { response in

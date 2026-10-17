@@ -105,11 +105,12 @@ extension OpenMusicEventAppViewStore {
         return OME.CalendarEvent.Page(events: events, cursor: nextCursor)
     }
 
+    @concurrent
     func calendarEvent(
         uri: ATProto.URI,
         appViewHost: ATProto.PDSHost
-    ) throws -> OME.CalendarEvent? {
-        try database.read { database in
+    ) async throws -> OME.CalendarEvent? {
+        try await database.read { database in
             guard let data = try CalendarEventBrowseProjection.find(uri.description)
                 .select(\.event)
                 .fetchOne(database)
