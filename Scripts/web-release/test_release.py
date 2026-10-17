@@ -9,6 +9,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+import urllib.error
 from unittest.mock import patch
 
 import artifact
@@ -384,6 +385,15 @@ class HostInstallTests(unittest.TestCase):
         self.wrong_executable = False
         self.property_overrides = {}
         self.http_calls = []
+        self.http_timeouts = []
+        self.now = 0
+        self.health_at = 0
+        self.ready_at = 0
+        self.exit_at = None
+        self.restart_at = None
+        self.response_delay = 0
+        self.ready_body = b"ready"
+        self.output = io.StringIO()
         self.args = SimpleNamespace(
             archive=self.archive, sha256=self.sha, revision=self.revision,
             service="ome-appview-canary.service", database=self.database,
@@ -396,6 +406,11 @@ class HostInstallTests(unittest.TestCase):
         patch("install.platform.machine", return_value="x86_64").start()
         patch("install.platform.freedesktop_os_release", return_value={"ID": "ubuntu", "VERSION_ID": "24.04"}).start()
         patch("install.os.geteuid", return_value=0).start()
+        patch("sys.stdout", self.output).start()
+        patch("install.time.monotonic", side_effect=lambda: self.now).start()
+        def sleep(seconds):
+            self.now += seconds
+        patch("install.time.sleep", side_effect=sleep).start()
         original_read = Path.read_bytes
         def read_bytes(path):
             if str(path) == "/proc/12345/environ":
@@ -415,7 +430,10 @@ class HostInstallTests(unittest.TestCase):
             if command[1:2] == ("show",):
                 key = command[command.index("-p") + 1]
                 environment = {"OME_APPVIEW_DATABASE_PATH": str(self.database)}
-                properties = {"MainPID": "12345" if self.running else "0",
+                if self.exit_at is not None and self.now >= self.exit_at:
+                    self.running = False
+                pid = "54321" if self.restart_at is not None and self.now >= self.restart_at else "12345"
+                properties = {"MainPID": pid if self.running else "0",
                               "ActiveState": "active" if self.running else "inactive",
                               "EnvironmentFiles": "", "UnsetEnvironment": ""}
                 # The systemd boundary applies later drop-ins after the CI selection.
@@ -443,7 +461,20 @@ class HostInstallTests(unittest.TestCase):
         identity = next(release.glob("*.resources/Site/assets/release.json")).read_bytes()
         def urlopen(url, **kwargs):
             self.http_calls.append(url)
-            body = b"ready" if url.endswith("/readyz") else (b"{}" if self.bad_identity else identity)
+            self.http_timeouts.append(kwargs.get("timeout"))
+            self.now += min(self.response_delay, kwargs.get("timeout", 5))
+            if self.response_delay > kwargs.get("timeout", 5):
+                raise TimeoutError("HTTP request timed out")
+            if url.endswith("/healthz"):
+                if self.now < self.health_at:
+                    raise OSError("Server has not started listening")
+                body = b"ok"
+            elif url.endswith("/readyz"):
+                if self.now < self.ready_at:
+                    raise urllib.error.HTTPError(url, 503, "Catching up", {}, None)
+                body = self.ready_body
+            else:
+                body = b"{}" if self.bad_identity else identity
             response = io.BytesIO(body)
             response.status = 200
             return response
@@ -460,6 +491,135 @@ class HostInstallTests(unittest.TestCase):
         self.assertEqual(installed.stat().st_mode & 0o777, 0o755)
         self.assertEqual(artifact.verify(installed)["sourceRevision"], self.revision)
         self.assertTrue(next((self.base / "backups").glob("*/result.json")).is_file())
+
+    def test_replay_can_take_longer_than_a_minute_before_smoke_and_acceptance(self):
+        self.ready_at = 180
+        install.install(self.args)
+        self.assertEqual(self.now, 180)
+        self.assertTrue(self.running)
+        self.assertEqual(self.http_calls[0], self.args.base_url + "/healthz")
+        self.assertIn(("bash", str(self.args.smoke_script), self.args.base_url), self.calls)
+        self.assertTrue(next((self.base / "backups").glob("*/result.json")).is_file())
+        progress = [json.loads(line) for line in self.output.getvalue().splitlines()]
+        waits = [item for item in progress if item["phase"] == "catch-up" and item["status"] == "waiting"]
+        self.assertEqual([item["elapsedSeconds"] for item in waits], [30, 60, 90, 120, 150])
+        # An older database without a checkpoint table must not break diagnostics.
+        self.assertTrue(all(item["checkpoints"] is None for item in waits))
+        self.assertTrue(all(item["checkpointStatus"] == "unavailable" for item in waits))
+
+    def test_catch_up_gets_its_full_budget_after_server_startup(self):
+        self.health_at = 119
+        self.ready_at = 1018
+        install.install(self.args)
+        self.assertEqual(self.now, 1018)
+        self.assertTrue(self.running)
+
+    def test_startup_deadline_stops_candidate_and_preserves_database_and_backup(self):
+        self.health_at = float("inf")
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaisesRegex(ValueError, "startup.*120"):
+            install.install(self.args)
+        self.assertEqual(self.now, 120)
+        self.assertNotIn(self.args.base_url + "/readyz", self.http_calls)
+        self.assertFalse(self.running)
+        self.assertEqual(self.dropin.read_bytes(), self.previous)
+        self.assertTrue(self.database.is_file())
+        self.assertTrue(next((self.base / "backups").glob("*/appview.sqlite")).is_file())
+        self.assertEqual(list((self.base / "backups").glob("*/result.json")), [])
+
+    def test_catch_up_deadline_stops_candidate_without_smoke_or_acceptance(self):
+        self.health_at = 4
+        self.ready_at = float("inf")
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaisesRegex(ValueError, "catch-up.*900"):
+            install.install(self.args)
+        self.assertEqual(self.now, 904)
+        self.assertFalse(self.running)
+        self.assertNotIn(("bash", str(self.args.smoke_script), self.args.base_url), self.calls)
+        self.assertTrue(self.database.is_file())
+        self.assertTrue(next((self.base / "backups").glob("*/appview.sqlite")).is_file())
+        self.assertEqual(list((self.base / "backups").glob("*/result.json")), [])
+
+    def test_process_exit_during_startup_fails_before_the_deadline(self):
+        self.health_at = float("inf")
+        self.exit_at = 10
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaisesRegex(ValueError, "exited or restarted"):
+            install.install(self.args)
+        self.assertEqual(self.now, 10)
+        self.assertEqual(list((self.base / "backups").glob("*/result.json")), [])
+
+    def test_process_exit_during_catch_up_fails_before_the_deadline(self):
+        self.ready_at = float("inf")
+        self.exit_at = 10
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaisesRegex(ValueError, "exited or restarted"):
+            install.install(self.args)
+        self.assertEqual(self.now, 10)
+        self.assertFalse(self.running)
+        self.assertNotIn(("bash", str(self.args.smoke_script), self.args.base_url), self.calls)
+
+    def test_restarted_process_cannot_inherit_candidate_readiness(self):
+        self.ready_at = 10
+        self.restart_at = 10
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaisesRegex(ValueError, "exited or restarted"):
+            install.install(self.args)
+        self.assertEqual(self.now, 10)
+        self.assertFalse(self.running)
+
+    def test_http_success_without_ready_body_does_not_accept_deployment(self):
+        self.ready_body = b"catching up"
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaisesRegex(ValueError, "catch-up.*900"):
+            install.install(self.args)
+        self.assertEqual(self.now, 900)
+        self.assertEqual(list((self.base / "backups").glob("*/result.json")), [])
+
+    def test_slow_http_requests_consume_the_elapsed_startup_budget(self):
+        self.response_delay = 10
+        def delayed_wakeup(seconds):
+            # Scheduler delay leaves a partial request budget near the deadline.
+            self.now += seconds + 0.25
+        with patch("install.time.sleep", side_effect=delayed_wakeup), \
+                contextlib.redirect_stderr(io.StringIO()), self.assertRaisesRegex(ValueError, "startup.*120"):
+            install.install(self.args)
+        self.assertEqual(self.now, 120)
+        self.assertTrue(all(0 < timeout <= 5 for timeout in self.http_timeouts))
+        self.assertLess(self.http_timeouts[-1], 5)
+
+    def test_health_response_at_the_deadline_is_not_accepted(self):
+        def late_response(*args, **kwargs):
+            self.now = 120
+            response = io.BytesIO(b"ok")
+            response.status = 200
+            return response
+        with patch("install.urllib.request.urlopen", side_effect=late_response), \
+                contextlib.redirect_stderr(io.StringIO()), self.assertRaisesRegex(ValueError, "startup.*120"):
+            install.install(self.args)
+        self.assertFalse(self.running)
+        self.assertNotIn(("bash", str(self.args.smoke_script), self.args.base_url), self.calls)
+        self.assertEqual(list((self.base / "backups").glob("*/result.json")), [])
+
+    def test_process_exit_during_successful_http_response_is_detected(self):
+        self.response_delay = 3
+        self.exit_at = 2
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaisesRegex(ValueError, "exited or restarted"):
+            install.install(self.args)
+        self.assertEqual(self.now, 3)
+        self.assertNotIn(self.args.base_url + "/readyz", self.http_calls)
+
+    def test_checkpoint_progress_is_read_only_and_contains_no_record_payloads(self):
+        with patch("install.sqlite3.connect") as connect:
+            database = connect.return_value
+            database.execute.return_value.fetchall.return_value = [
+                ("hydrant|ome-appview-v3|event-graph-v3", 69556)
+            ]
+            install.log_progress(self.database, "catch-up", 30, 900)
+            connect.assert_called_once_with(self.database.as_uri() + "?mode=ro", uri=True, timeout=1)
+            database.execute.assert_any_call("PRAGMA query_only=ON")
+            database.execute.assert_called_with("SELECT id, sequence FROM appViewCheckpoints ORDER BY id LIMIT 32")
+            database.close.assert_called_once()
+        progress = json.loads(self.output.getvalue())
+        self.assertEqual(progress, {
+            "phase": "catch-up", "status": "waiting", "elapsedSeconds": 30,
+            "timeoutSeconds": 900, "checkpointStatus": "available",
+            "checkpoints": {"hydrant|ome-appview-v3|event-graph-v3": 69556},
+        })
 
     def test_wrong_public_release_stops_candidate_without_rolling_back_database(self):
         self.bad_identity = True

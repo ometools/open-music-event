@@ -16,12 +16,16 @@ import sys
 import tarfile
 import tempfile
 import time
+import urllib.error
 import urllib.request
 
 from artifact import digest, verify
 
 BASE = Path("/srv/ome-appview")
 UNIT_ROOT = Path("/etc/systemd/system")
+STARTUP_TIMEOUT_SECONDS = 120
+READINESS_TIMEOUT_SECONDS = 900
+PROGRESS_INTERVAL_SECONDS = 30
 
 MANAGED_ENVIRONMENT = {
     "OME_APPVIEW_SITE_ROOT", "OME_APPVIEW_WELL_KNOWN_ROOT", "LD_LIBRARY_PATH",
@@ -89,9 +93,71 @@ def verify_process(service, release, database):
             configured = environment.get(b"OME_APPVIEW_DATABASE_PATH", b"").decode()
             if not configured or Path(configured).resolve() != database.resolve():
                 raise ValueError("The running process is using a different database")
-            return
+            return pid
         time.sleep(0.1)
     raise ValueError("The running executable does not match the candidate")
+
+
+def require_process(service, pid):
+    if setting(service, "MainPID") != pid or setting(service, "ActiveState") != "active":
+        raise ValueError("Candidate process exited or restarted while verifying deployment")
+
+
+def log_progress(database, phase, elapsed, timeout_seconds):
+    checkpoints = None
+    try:
+        with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=1)) as source:
+            source.execute("PRAGMA query_only=ON")
+            checkpoints = dict(source.execute(
+                "SELECT id, sequence FROM appViewCheckpoints ORDER BY id LIMIT 32"
+            ).fetchall())
+    except sqlite3.Error:
+        # Older schemas or a busy database must not prevent bounded startup diagnostics.
+        pass
+    print(json.dumps({
+        "phase": phase, "status": "waiting", "elapsedSeconds": round(elapsed, 1),
+        "timeoutSeconds": timeout_seconds,
+        "checkpointStatus": "available" if checkpoints is not None else "unavailable",
+        "checkpoints": checkpoints,
+    }), flush=True)
+
+
+def wait_for_readiness(args, pid):
+    for phase, path, expected, timeout_seconds in (
+        ("startup", "/healthz", b"ok", STARTUP_TIMEOUT_SECONDS),
+        ("catch-up", "/readyz", b"ready", READINESS_TIMEOUT_SECONDS),
+    ):
+        started = time.monotonic()
+        deadline = started + timeout_seconds
+        next_progress = started + PROGRESS_INTERVAL_SECONDS
+        while True:
+            require_process(args.service, pid)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ValueError(f"Candidate {phase} deadline exceeded ({timeout_seconds} seconds)")
+            passed = False
+            try:
+                with urllib.request.urlopen(args.base_url + path, timeout=min(5, remaining)) as response:
+                    passed = response.status == 200 and response.read(128).strip() == expected
+            except urllib.error.HTTPError as error:
+                error.close()
+            except OSError:
+                pass
+            # A response from a process that died or restarted cannot accept the candidate.
+            require_process(args.service, pid)
+            now = time.monotonic()
+            if now >= deadline:
+                raise ValueError(f"Candidate {phase} deadline exceeded ({timeout_seconds} seconds)")
+            if passed:
+                print(json.dumps({
+                    "phase": phase, "status": "passed", "elapsedSeconds": round(now - started, 1),
+                    "timeoutSeconds": timeout_seconds,
+                }), flush=True)
+                break
+            if now >= next_progress:
+                log_progress(args.database, phase, now - started, timeout_seconds)
+                next_progress = now + PROGRESS_INTERVAL_SECONDS
+            time.sleep(min(1, max(0, deadline - time.monotonic())))
 
 
 def extract(archive, destination):
@@ -189,21 +255,13 @@ def install(args):
                         raise ValueError("SQLite backup did not pass quick_check")
             activated = True
             run("systemctl", "start", args.service)
-            verify_process(args.service, release, args.database)
-            for attempt in range(60):
-                try:
-                    with urllib.request.urlopen(args.base_url + "/readyz", timeout=5) as response:
-                        if response.status == 200 and response.read().strip() == b"ready":
-                            break
-                except OSError:
-                    pass
-                time.sleep(1)
-            else:
-                raise ValueError("Candidate did not become ready")
+            candidate_pid = verify_process(args.service, release, args.database)
+            wait_for_readiness(args, candidate_pid)
             run("bash", str(args.smoke_script), args.base_url)
             with urllib.request.urlopen(args.base_url + "/assets/release.json", timeout=10) as response:
                 if json.load(response) != identity:
                     raise ValueError("Public host is not serving the candidate release")
+            require_process(args.service, candidate_pid)
             verify_process(args.service, release, args.database)
             verify(release)
             (backup / "result.json").write_text(json.dumps({
