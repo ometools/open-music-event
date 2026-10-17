@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import platform
 import re
+import shlex
 import shutil
 import sqlite3
 import subprocess
@@ -22,9 +23,75 @@ from artifact import digest, verify
 BASE = Path("/srv/ome-appview")
 UNIT_ROOT = Path("/etc/systemd/system")
 
+MANAGED_ENVIRONMENT = {
+    "OME_APPVIEW_SITE_ROOT", "OME_APPVIEW_WELL_KNOWN_ROOT", "LD_LIBRARY_PATH",
+    "OME_APPVIEW_DATABASE_PATH",
+}
+
 
 def run(*command, **kwargs):
     return subprocess.run(command, check=True, **kwargs)
+
+
+def setting(service, name):
+    return run("systemctl", "show", service, "-p", name, "--value",
+               capture_output=True, text=True).stdout.strip()
+
+
+def configured_environment(service):
+    # EnvironmentFile and UnsetEnvironment take precedence over Environment.
+    # Keep release/database selection in the unit, credentials in environment files.
+    for entry in setting(service, "EnvironmentFiles").splitlines():
+        match = re.fullmatch(r"(/.+) \(ignore_errors=(yes|no)\)", entry)
+        if not match or any(c in match[1] for c in "*?[]\\"):
+            raise ValueError("Cannot verify service EnvironmentFile path")
+        path = Path(match[1])
+        if not path.exists() and match[2] == "yes":
+            continue
+        contents = path.read_text().replace("\\\n", "")
+        for key in MANAGED_ENVIRONMENT:
+            if re.search(r"^\s*" + re.escape(key) + r"\s*=", contents, re.MULTILINE):
+                raise ValueError(f"EnvironmentFile must not override {key}")
+    for assignment in shlex.split(setting(service, "UnsetEnvironment")):
+        if assignment.split("=", 1)[0] in MANAGED_ENVIRONMENT:
+            raise ValueError("UnsetEnvironment must not remove release or database settings")
+    return dict(item.split("=", 1) for item in shlex.split(setting(service, "Environment")))
+
+
+def verify_selection(service, release, bundle, database):
+    command = setting(service, "ExecStart")
+    prefix = f"{{ path={release}/run ; argv[]={release}/run ; ignore_errors=no ; "
+    if not command.startswith(prefix) or command.count("{ path=") != 1:
+        raise ValueError("Effective ExecStart does not select the candidate; reconcile legacy drop-ins")
+    if setting(service, "WorkingDirectory") != str(release):
+        raise ValueError("Effective WorkingDirectory does not select the candidate")
+    environment = configured_environment(service)
+    expected = {
+        "OME_APPVIEW_SITE_ROOT": str(bundle / "Site"),
+        "OME_APPVIEW_WELL_KNOWN_ROOT": str(bundle / "WellKnown"),
+        "LD_LIBRARY_PATH": str(release / "lib"),
+    }
+    for key, value in expected.items():
+        if environment.get(key) != value:
+            raise ValueError(f"Effective {key} does not select the candidate")
+    configured = environment.get("OME_APPVIEW_DATABASE_PATH", "")
+    if not configured or Path(configured).resolve() != database.resolve():
+        raise ValueError("Supplied backup path is not the configured service database")
+
+
+def verify_process(service, release, database):
+    # Type=simple can briefly report the shell launcher before it execs the server.
+    for attempt in range(50):
+        pid = setting(service, "MainPID")
+        if pid != "0" and Path(f"/proc/{pid}/exe").resolve() == release / "OpenMusicEventAppView":
+            environment = dict(item.split(b"=", 1) for item in
+                               Path(f"/proc/{pid}/environ").read_bytes().split(b"\0") if b"=" in item)
+            configured = environment.get(b"OME_APPVIEW_DATABASE_PATH", b"").decode()
+            if not configured or Path(configured).resolve() != database.resolve():
+                raise ValueError("The running process is using a different database")
+            return
+        time.sleep(0.1)
+    raise ValueError("The running executable does not match the candidate")
 
 
 def extract(archive, destination):
@@ -75,32 +142,34 @@ def install(args):
         bundle = next(p for p in release.glob("*.resources") if p.name.endswith("OpenMusicEventAppViewServer.resources"))
         identity = json.loads((bundle / "Site/assets/release.json").read_text())
 
-        # Read only the running process's database setting. Never log its credentials.
-        pid = run("systemctl", "show", args.service, "-p", "MainPID", "--value",
-                  capture_output=True, text=True).stdout.strip()
-        if pid == "0":
-            raise ValueError("Expected an existing running service before deployment")
-        environment = dict(item.split(b"=", 1) for item in Path(f"/proc/{pid}/environ").read_bytes().split(b"\0") if b"=" in item)
-        configured = environment.get(b"OME_APPVIEW_DATABASE_PATH", b"").decode()
+        state = setting(args.service, "ActiveState")
+        if state not in ("active", "inactive", "failed"):
+            raise ValueError("Service is transitioning; retry after it settles")
+        pid = setting(args.service, "MainPID")
+        was_running = state == "active" and pid != "0"
+        if (pid != "0") != was_running:
+            raise ValueError("Service state and process disagree")
+        configured = configured_environment(args.service).get("OME_APPVIEW_DATABASE_PATH", "")
         if not configured or Path(configured).resolve() != args.database.resolve():
-            raise ValueError("Supplied backup path is not the running service's database")
+            raise ValueError("Supplied backup path is not the configured service database")
+        if was_running:
+            # Read only the database setting. Never log process credentials.
+            environment = dict(item.split(b"=", 1) for item in
+                               Path(f"/proc/{pid}/environ").read_bytes().split(b"\0") if b"=" in item)
+            configured = environment.get(b"OME_APPVIEW_DATABASE_PATH", b"").decode()
+            if not configured or Path(configured).resolve() != args.database.resolve():
+                raise ValueError("Supplied backup path is not the running service's database")
 
         backup = base / "backups" / f"ci-{time.time_ns()}-{args.sha256[:12]}"
         backup.mkdir()
-        dropin = UNIT_ROOT / (args.service + ".d") / "zzzz-ome-ci-release.conf"
+        dropin = UNIT_ROOT / (args.service + ".d") / "50-ome-ci-release.conf"
         previous = dropin.read_bytes() if dropin.exists() else None
         # Unit files contain secret locations and may contain credentials; keep backups private.
         backup.chmod(0o700)
         (backup / "unit.before").write_bytes(run("systemctl", "cat", args.service, capture_output=True).stdout)
-        run("systemctl", "stop", args.service)
+        stopped = False
         activated = False
         try:
-            with closing(sqlite3.connect(args.database.as_uri() + "?mode=ro", uri=True)) as source:
-                with closing(sqlite3.connect(backup / "appview.sqlite")) as target:
-                    source.backup(target)
-                    if target.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
-                        raise ValueError("SQLite backup did not pass quick_check")
-            activated = True
             dropin.parent.mkdir(parents=True, exist_ok=True)
             dropin.write_text(
                 "[Service]\nExecStart=\n"
@@ -110,7 +179,17 @@ def install(args):
                 f"Environment=LD_LIBRARY_PATH={release}/lib\n"
             )
             run("systemctl", "daemon-reload")
+            verify_selection(args.service, release, bundle, args.database)
+            run("systemctl", "stop", args.service)
+            stopped = True
+            with closing(sqlite3.connect(args.database.as_uri() + "?mode=ro", uri=True)) as source:
+                with closing(sqlite3.connect(backup / "appview.sqlite")) as target:
+                    source.backup(target)
+                    if target.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
+                        raise ValueError("SQLite backup did not pass quick_check")
+            activated = True
             run("systemctl", "start", args.service)
+            verify_process(args.service, release, args.database)
             for attempt in range(60):
                 try:
                     with urllib.request.urlopen(args.base_url + "/readyz", timeout=5) as response:
@@ -119,14 +198,13 @@ def install(args):
                 except OSError:
                     pass
                 time.sleep(1)
+            else:
+                raise ValueError("Candidate did not become ready")
             run("bash", str(args.smoke_script), args.base_url)
             with urllib.request.urlopen(args.base_url + "/assets/release.json", timeout=10) as response:
                 if json.load(response) != identity:
                     raise ValueError("Public host is not serving the candidate release")
-            current_pid = run("systemctl", "show", args.service, "-p", "MainPID", "--value",
-                              capture_output=True, text=True).stdout.strip()
-            if Path(f"/proc/{current_pid}/exe").resolve() != release / "OpenMusicEventAppView":
-                raise ValueError("The running executable does not match the candidate")
+            verify_process(args.service, release, args.database)
             verify(release)
             (backup / "result.json").write_text(json.dumps({
                 "artifactSHA256": args.sha256, "sourceRevision": args.revision,
@@ -137,13 +215,13 @@ def install(args):
                 # A new binary may have migrated the database. Never roll it back automatically.
                 run("systemctl", "stop", args.service)
                 print(f"Candidate failed; service stopped. Database and backup retained at {backup}", file=sys.stderr)
-            else:
-                run("systemctl", "start", args.service)
             if previous is None:
                 dropin.unlink(missing_ok=True)
             else:
                 dropin.write_bytes(previous)
             run("systemctl", "daemon-reload")
+            if stopped and not activated and was_running:
+                run("systemctl", "start", args.service)
             raise
 
 

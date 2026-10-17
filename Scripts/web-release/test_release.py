@@ -2,6 +2,7 @@ import contextlib
 import io
 import json
 import os
+import shlex
 from pathlib import Path
 import subprocess
 import sys
@@ -373,12 +374,16 @@ class HostInstallTests(unittest.TestCase):
             database.execute("INSERT INTO user_data VALUES ('keep this event')")
             database.commit()
         self.units = self.root / "systemd"
-        self.dropin = self.units / "ome-appview-canary.service.d/zzzz-ome-ci-release.conf"
+        self.dropin = self.units / "ome-appview-canary.service.d/50-ome-ci-release.conf"
         self.dropin.parent.mkdir(parents=True)
         self.dropin.write_text("[Service]\nExecStart=/previous/run\n")
         self.previous = self.dropin.read_bytes()
         self.calls = []
         self.bad_identity = False
+        self.running = True
+        self.wrong_executable = False
+        self.property_overrides = {}
+        self.http_calls = []
         self.args = SimpleNamespace(
             archive=self.archive, sha256=self.sha, revision=self.revision,
             service="ome-appview-canary.service", database=self.database,
@@ -400,19 +405,44 @@ class HostInstallTests(unittest.TestCase):
         original_resolve = Path.resolve
         def resolve(path, *args, **kwargs):
             if str(path) == "/proc/12345/exe":
+                if self.wrong_executable:
+                    return Path("/previous/OpenMusicEventAppView")
                 return self.base / "releases" / self.sha / "OpenMusicEventAppView"
             return original_resolve(path, *args, **kwargs)
         patch.object(Path, "resolve", resolve).start()
         def run(*command, **kwargs):
             self.calls.append(command)
             if command[1:2] == ("show",):
-                return subprocess.CompletedProcess(command, 0, "12345\n")
+                key = command[command.index("-p") + 1]
+                environment = {"OME_APPVIEW_DATABASE_PATH": str(self.database)}
+                properties = {"MainPID": "12345" if self.running else "0",
+                              "ActiveState": "active" if self.running else "inactive",
+                              "EnvironmentFiles": "", "UnsetEnvironment": ""}
+                # The systemd boundary applies later drop-ins after the CI selection.
+                for config in sorted(self.dropin.parent.glob("*.conf")):
+                    for line in config.read_text().splitlines():
+                        name, _, value = line.partition("=")
+                        if name in ("ExecStart", "WorkingDirectory"):
+                            properties[name] = value
+                        elif name == "Environment":
+                            environment.update(item.split("=", 1) for item in shlex.split(value))
+                executable = properties.get("ExecStart", "/previous/run")
+                properties["ExecStart"] = (f"{{ path={executable} ; argv[]={executable} ; "
+                                           "ignore_errors=no ; pid=12345 ; code=(null) ; status=0/0 }")
+                properties["Environment"] = shlex.join(f"{k}={v}" for k, v in environment.items())
+                properties.update(self.property_overrides)
+                return subprocess.CompletedProcess(command, 0, properties[key] + "\n")
+            if command[1:2] == ("start",):
+                self.running = True
+            if command[1:2] == ("stop",):
+                self.running = False
             if command[1:2] == ("cat",):
                 return subprocess.CompletedProcess(command, 0, b"[Service]\n")
             return subprocess.CompletedProcess(command, 0, "")
         patch("install.run", side_effect=run).start()
         identity = next(release.glob("*.resources/Site/assets/release.json")).read_bytes()
         def urlopen(url, **kwargs):
+            self.http_calls.append(url)
             body = b"ready" if url.endswith("/readyz") else (b"{}" if self.bad_identity else identity)
             response = io.BytesIO(body)
             response.status = 200
@@ -441,6 +471,96 @@ class HostInstallTests(unittest.TestCase):
         self.assertTrue(self.database.exists())
         self.assertTrue(next((self.base / "backups").glob("*/appview.sqlite")).is_file())
         self.assertEqual(list((self.base / "backups").glob("*/result.json")), [])
+
+    def test_legacy_override_cannot_start_the_previous_release(self):
+        legacy = self.dropin.parent / "zzzzzz-proposals-portable.conf"
+        legacy.write_text("[Service]\nExecStart=\nExecStart=/september/OpenMusicEventAppView\n")
+        with self.assertRaisesRegex(ValueError, "ExecStart"):
+            install.install(self.args)
+        self.assertEqual(self.dropin.read_bytes(), self.previous)
+        self.assertTrue(self.running)
+        self.assertFalse(any(c[1] in ("stop", "start") for c in self.calls))
+        self.assertEqual(self.http_calls, [])
+
+    def test_stale_site_root_is_rejected_before_stopping(self):
+        legacy = self.dropin.parent / "zzzzzz-proposals-portable.conf"
+        legacy.write_text("[Service]\nEnvironment=OME_APPVIEW_SITE_ROOT=/september/Site\n")
+        with self.assertRaisesRegex(ValueError, "OME_APPVIEW_SITE_ROOT"):
+            install.install(self.args)
+        self.assertTrue(self.running)
+        self.assertFalse(any(c[1] in ("stop", "start") for c in self.calls))
+
+    def test_working_directory_and_environment_removal_conflicts_fail_before_stopping(self):
+        for key, value, message in (
+            ("WorkingDirectory", "/september", "WorkingDirectory"),
+            ("UnsetEnvironment", "OME_APPVIEW_SITE_ROOT", "UnsetEnvironment"),
+        ):
+            with self.subTest(setting=key):
+                self.property_overrides = {key: value}
+                with self.assertRaisesRegex(ValueError, message):
+                    install.install(self.args)
+                self.assertEqual(self.dropin.read_bytes(), self.previous)
+                self.assertTrue(self.running)
+                self.assertFalse(any(c[1] in ("stop", "start") for c in self.calls))
+
+    def test_first_install_conflict_removes_only_the_new_ci_dropin(self):
+        self.dropin.unlink()
+        legacy = self.dropin.parent / "zzzzzz-proposals-portable.conf"
+        contents = "[Service]\nExecStart=\nExecStart=/september/OpenMusicEventAppView\n"
+        legacy.write_text(contents)
+        with self.assertRaisesRegex(ValueError, "ExecStart"):
+            install.install(self.args)
+        self.assertFalse(self.dropin.exists())
+        self.assertEqual(legacy.read_text(), contents)
+        self.assertTrue(self.running)
+
+    def test_environment_file_cannot_replace_release_paths(self):
+        environment_file = self.root / "service.env"
+        environment_file.write_text("OME_APPVIEW_SITE_ROOT=/september/Site\nTOKEN=must-not-log\n")
+        self.property_overrides["EnvironmentFiles"] = f"{environment_file} (ignore_errors=no)"
+        with self.assertRaisesRegex(ValueError, "EnvironmentFile") as error:
+            install.install(self.args)
+        self.assertNotIn("must-not-log", str(error.exception))
+        self.assertTrue(self.running)
+
+    def test_wrong_binary_fails_before_public_health_checks(self):
+        self.wrong_executable = True
+        with patch("install.time.sleep"), contextlib.redirect_stderr(io.StringIO()), \
+                self.assertRaisesRegex(ValueError, "executable"):
+            install.install(self.args)
+        self.assertEqual(self.http_calls, [])
+        self.assertFalse(self.running)
+
+    def test_stopped_service_can_retry_with_verified_existing_database(self):
+        self.running = False
+        install.install(self.args)
+        self.assertTrue(self.running)
+        self.assertTrue(next((self.base / "backups").glob("*/appview.sqlite")).is_file())
+
+    def test_stopped_service_rejects_a_different_database(self):
+        self.running = False
+        self.property_overrides["Environment"] = "OME_APPVIEW_DATABASE_PATH=/other.sqlite"
+        with self.assertRaisesRegex(ValueError, "database"):
+            install.install(self.args)
+        self.assertFalse(any(c[1] in ("stop", "start") for c in self.calls))
+
+    def test_failed_backup_restores_configuration_before_restarting_previous_service(self):
+        with patch("install.sqlite3.connect", side_effect=OSError("Backup failed")), \
+                self.assertRaisesRegex(OSError, "Backup failed"):
+            install.install(self.args)
+        self.assertEqual(self.dropin.read_bytes(), self.previous)
+        self.assertTrue(self.running)
+        self.assertEqual(self.calls[-2:], [("systemctl", "daemon-reload"),
+                                          ("systemctl", "start", self.args.service)])
+
+    def test_failed_backup_does_not_start_a_previously_stopped_service(self):
+        self.running = False
+        with patch("install.sqlite3.connect", side_effect=OSError("Backup failed")), \
+                self.assertRaisesRegex(OSError, "Backup failed"):
+            install.install(self.args)
+        self.assertEqual(self.dropin.read_bytes(), self.previous)
+        self.assertFalse(self.running)
+        self.assertNotIn(("systemctl", "start", self.args.service), self.calls)
 
     def test_wrong_host_architecture_never_stops_service(self):
         with patch("install.platform.machine", return_value="aarch64"):

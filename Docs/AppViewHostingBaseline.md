@@ -115,6 +115,30 @@ deployment. The installer requires Ubuntu 24.04 x86-64, the existing service and
 database, and noninteractive permission to run the installer through sudo.
 Production settings must be verified independently.
 
+### Host release selection and retries
+
+`50-ome-ci-release.conf` is the single CI-managed release selector. Before adopting
+an existing host, privately back up its unit and drop-ins, then consolidate old
+`ExecStart`, `WorkingDirectory`, site-root, well-known-root, and `LD_LIBRARY_PATH`
+overrides into that file. Preserve credential files, ingestion configuration,
+startup validation, and the existing database setting. Systemd applies drop-ins
+in filename order; adding more `z` characters is not a release-selection policy.
+
+The installer reloads and checks systemd's effective command, working directory,
+resource paths, and database path before stopping the service. Release paths and
+`OME_APPVIEW_DATABASE_PATH` must be unit `Environment` settings; environment files
+may contain credentials but must not override these settings. Environment-file
+paths must be literal absolute paths. It then backs up SQLite, starts the candidate,
+and verifies its process identity before checking public readiness and routes.
+
+A failed candidate remains stopped because startup may have migrated the database.
+The next main deployment can retry an inactive or failed service after verifying
+its configured database path; it backs up that existing database again. A failure
+before candidate startup restores the previous configuration and restarts the
+previous service only if it had been running. Configuration conflicts fail before
+any stop/start. Re-running an older workflow uses that older installer; merge the
+repair to main to use the corrected behavior.
+
 ### AWS OIDC and release bucket
 
 Use GitHub OIDC instead of copying long-lived AWS keys into GitHub.
