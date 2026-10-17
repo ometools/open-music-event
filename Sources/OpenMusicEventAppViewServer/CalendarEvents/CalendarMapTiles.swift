@@ -67,63 +67,78 @@ struct CalendarMapTile: Sendable {
 }
 
 actor CalendarMapTileCache {
-    struct Key: Hashable { var tile: CalendarMapTileRequest; var generation: Int; var revision: Int }
-    var entries: [Key: CalendarMapTile] = [:]
-    var recency: [Key] = []
-    var pending: [Key: Task<CalendarMapTile, any Error>] = [:]
-    var bytes = 0
-    let capacity = 32 * 1024 * 1024
+    struct Key: Hashable, Sendable { let tile: CalendarMapTileRequest; let generation: Int; let revision: Int }
+    private var entries: [Key: CalendarMapTile] = [:]
+    private var recency: [Key] = []
+    private var pending: [Key: Task<CalendarMapTile, any Error>] = [:]
+    private var bytes = 0
+    private let capacity = 32 * 1024 * 1024
 
     func tile(_ request: CalendarMapTileRequest, store: OpenMusicEventAppViewStore) async throws -> CalendarMapTile {
-        let lookupStarted = ContinuousClock.now
-        let key = try await store.database.read { db in
-            let generation = try CalendarMapBuild.find(0).select(\.active).fetchOne(db) ?? 0
-            guard generation > 0 else { throw CalendarBrowseError.mapNotReady }
-            let ids = request.neighbors.flatMap { prefix in request.catalogs.map { "\(generation)|\(prefix)|\($0)" } }
-            let revision = (try CalendarMapRevision.where { $0.id.in(ids) }.select { $0.revision.sum() }.fetchOne(db)).flatMap { $0 } ?? 0
-            return Key(tile: request, generation: generation, revision: revision)
-        }
-        let lookupDuration = lookupStarted.duration(to: .now)
-        let lookupMilliseconds = Double(lookupDuration.components.seconds) * 1000
-            + Double(lookupDuration.components.attoseconds) / 1e15
-        if let cached = entries[key] {
-            recency.removeAll { $0 == key }; recency.append(key)
-            var result = cached
-            result.databaseMilliseconds = lookupMilliseconds
-            result.cacheHit = true
-            return result
-        }
-        if let task = pending[key] {
-            var result = try await task.value
-            result.databaseMilliseconds += lookupMilliseconds
-            return result
-        }
-        guard pending.count < 8 else { throw CalendarBrowseError.mapBusy }
-        let task = Task.detached { try store.mapTile(request, generation: key.generation) }
-        pending[key] = task
-        do {
-            let value = try await task.value
-            pending[key] = nil
-            entries[key] = value; recency.append(key)
-            bytes += value.data.count + value.gzip.count
-            while bytes > capacity || entries.count > 2048, let first = recency.first {
-                recency.removeFirst()
-                if let removed = entries.removeValue(forKey: first) { bytes -= removed.data.count + removed.gzip.count }
+        while true {
+            try Task.checkCancellation()
+            let lookupStarted = ContinuousClock.now
+            let key = try await store.database.read { db in
+                let generation = try CalendarMapBuild.find(0).select(\.active).fetchOne(db) ?? 0
+                guard generation > 0 else { throw CalendarBrowseError.mapNotReady }
+                let ids = request.neighbors.flatMap { prefix in request.catalogs.map { "\(generation)|\(prefix)|\($0)" } }
+                let revision = (try CalendarMapRevision.where { $0.id.in(ids) }.select { $0.revision.sum() }.fetchOne(db)).flatMap { $0 } ?? 0
+                return Key(tile: request, generation: generation, revision: revision)
             }
-            var result = value
-            result.databaseMilliseconds += lookupMilliseconds
-            return result
-        } catch CalendarBrowseError.mapGenerationChanged {
-            pending[key] = nil
-            return try await tile(request, store: store)
-        } catch { pending[key] = nil; throw error }
+            let lookupDuration = lookupStarted.duration(to: .now)
+            let lookupMilliseconds = Double(lookupDuration.components.seconds) * 1000
+                + Double(lookupDuration.components.attoseconds) / 1e15
+            try Task.checkCancellation()
+            if let cached = entries[key] {
+                recency.removeAll { $0 == key }; recency.append(key)
+                var result = cached
+                result.databaseMilliseconds = lookupMilliseconds
+                result.cacheHit = true
+                return result
+            }
+            let task: Task<CalendarMapTile, any Error>
+            if let existing = pending[key] {
+                task = existing
+            } else {
+                guard pending.count < 8 else { throw CalendarBrowseError.mapBusy }
+                // The cache owns this shared build. A cancelled request must not
+                // cancel work that another request is awaiting. Only this task
+                // publishes the value and releases its admission slot, on this actor.
+                task = Task {
+                    defer { pending[key] = nil }
+                    let value = try await store.mapTile(request, generation: key.generation)
+                    entries[key] = value
+                    recency.append(key)
+                    bytes += value.data.count + value.gzip.count
+                    while bytes > capacity || entries.count > 2048, let first = recency.first {
+                        recency.removeFirst()
+                        if let removed = entries.removeValue(forKey: first) {
+                            bytes -= removed.data.count + removed.gzip.count
+                        }
+                    }
+                    return value
+                }
+                pending[key] = task
+            }
+            do {
+                var result = try await task.value
+                try Task.checkCancellation()
+                result.databaseMilliseconds += lookupMilliseconds
+                return result
+            } catch CalendarBrowseError.mapGenerationChanged {
+                continue
+            }
+        }
     }
 }
 
 extension OpenMusicEventAppViewStore {
-    func mapTile(_ request: CalendarMapTileRequest, generation: Int) throws -> CalendarMapTile {
+    // Database access suspends; encoding runs outside the cache actor. No GRDB
+    // connection or row escapes the read closure, only Sendable feature values.
+    @concurrent
+    func mapTile(_ request: CalendarMapTileRequest, generation: Int) async throws -> CalendarMapTile {
         let started = ContinuousClock.now
-        let features: [(Double, Double, [String: String])] = try database.read { db in
+        let features: [(Double, Double, [String: String])] = try await database.read { db in
             guard try CalendarMapBuild.find(0).select(\.active).fetchOne(db) == generation else {
                 throw CalendarBrowseError.mapGenerationChanged
             }

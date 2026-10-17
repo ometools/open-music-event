@@ -93,6 +93,12 @@ for attempt in {1..60}; do
   sleep 1
 done
 phase http-smoke bash Scripts/web-release/smoke.sh http://127.0.0.1:18082
+# Exercise the real pooled HTTP path under overlapping tile and browse traffic.
+# This child owns a separate disposable database and is always reaped by the harness.
+stress_args=(--executable "$executable" --output "$output/request-stress" --workers 32 --rounds 16 --stress)
+if [[ "$mode" == release ]]; then stress_args+=(--revision "$OME_RELEASE_REVISION"); fi
+phase request-stress timeout --signal=TERM --kill-after=10s 180s \
+  python3 Scripts/web-release/reproduce-globe-stall.py "${stress_args[@]}"
 if [[ "$mode" == release ]]; then
   python3 Scripts/web-release/artifact.py verify "$output/release/appview" > "$output/verified-manifest.json"
   mkdir "$output/passed"

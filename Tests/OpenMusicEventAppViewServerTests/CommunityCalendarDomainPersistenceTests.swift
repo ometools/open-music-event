@@ -12,7 +12,7 @@ import Testing
 @Suite(AppViewTestTime())
 struct CommunityCalendarDomainPersistenceTests {
     @Test(.enabled(if: ProcessInfo.processInfo.environment["OME_CANONICAL_SAMPLE_SOURCE"] != nil))
-    func `bounded real record backfill benchmark`() throws {
+    func `bounded real record backfill benchmark`() async throws {
         let path = try #require(ProcessInfo.processInfo.environment["OME_CANONICAL_SAMPLE_SOURCE"])
         let sampleLimit = Int(ProcessInfo.processInfo.environment["OME_CANONICAL_SAMPLE_LIMIT"] ?? "1000") ?? 1000
         try #require((1...10_000).contains(sampleLimit))
@@ -22,7 +22,7 @@ struct CommunityCalendarDomainPersistenceTests {
         let source = try DatabaseQueue(path: "file:\(path)?mode=ro&immutable=1", configuration: configuration)
         // Spread the sample across the URI range, then include large payloads and tombstones.
         // Selection is outside the timed ingestion path and never writes to the source database.
-        let records = try source.read { db in
+        let records = try await source.read { db in
             try Row.fetchAll(db, sql: """
                 WITH numbered AS (
                   SELECT uri, ROW_NUMBER() OVER (ORDER BY uri) AS ordinal,
@@ -42,29 +42,29 @@ struct CommunityCalendarDomainPersistenceTests {
                 SELECT uri, collection, cid, value, sequence, isDeleted FROM appViewIndexedRecords
                 WHERE uri IN (SELECT uri FROM sampled UNION SELECT uri FROM largest UNION SELECT uri FROM deleted)
                 ORDER BY uri
-                """, arguments: [sampleLimit, sampleLimit])
+                """, arguments: [sampleLimit, sampleLimit]).map { Array($0.databaseValues) }
         }
         #expect(!records.isEmpty && records.count <= sampleLimit + 50)
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ome-canonical-sample-\(UUID())")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let database = try DatabaseQueue(path: directory.appendingPathComponent("sample.sqlite").path)
         let store = try OpenMusicEventAppViewStore(database: database)
-        try database.write { db in
+        try await database.write { db in
             try CommunityCalendarDomainBackfill.delete().execute(db)
             for record in records {
                 try db.execute(sql: """
                     INSERT INTO appViewIndexedRecords (uri, collection, cid, value, sequence, isDeleted)
                     VALUES (?, ?, ?, ?, ?, ?)
-                    """, arguments: StatementArguments(record.databaseValues))
+                    """, arguments: StatementArguments(record))
             }
         }
         let clock = ContinuousClock()
         let initial = try clock.measure {
             while try !store.backfillCommunityCalendarDomainBatch(limit: 100) {}
         }
-        let events = try database.read { try Event.all.fetchCount($0) }
-        let revisions = try database.read { try CalendarMapRevision.order(by: \.id).select(\.revision).fetchAll($0) }
-        try database.write { db in
+        let events = try await database.read { try Event.all.fetchCount($0) }
+        let revisions = try await database.read { try CalendarMapRevision.order(by: \.id).select(\.revision).fetchAll($0) }
+        try await database.write { db in
             try CommunityCalendarDomainBackfill.delete().execute(db)
             try db.execute(sql: """
                 CREATE TEMP TRIGGER reject_sample_replay BEFORE INSERT ON "\(Event.tableName)"
@@ -74,9 +74,9 @@ struct CommunityCalendarDomainPersistenceTests {
         let replay = try clock.measure {
             while try !store.backfillCommunityCalendarDomainBatch(limit: 100) {}
         }
-        let cells = try database.read { try CalendarMapCell.order(by: \.id).fetchAll($0) }
+        let cells = try await database.read { try CalendarMapCell.order(by: \.id).fetchAll($0) }
         // An adapter upgrade must reproject real content against populated indexes, not skip it.
-        try database.write { db in
+        try await database.write { db in
             try db.execute(sql: "DROP TRIGGER reject_sample_replay")
             try CommunityCalendarDomainBackfill.delete().execute(db)
             try CommunityCalendarDomainOutcome.update { $0.adapterVersion = -1 }.execute(db)
@@ -92,41 +92,43 @@ struct CommunityCalendarDomainPersistenceTests {
         let validation = try clock.measure {
             while try freshStore.validateCommunityCalendarDomainBatch() > 0 {}
         }
-        let invalid = try freshDatabase.read {
+        let invalid = try await freshDatabase.read {
             try CommunityCalendarDomainOutcome.where { $0.validationState.eq("invalid") }.fetchCount($0)
         }
         #expect(invalid == 0)
-        let expectedEvents = try database.read { try Event.order(by: \.id).fetchAll($0) }
-        let rebuiltEvents = try freshDatabase.read { try Event.order(by: \.id).fetchAll($0) }
+        let expectedEvents = try await database.read { try Event.order(by: \.id).fetchAll($0) }
+        let rebuiltEvents = try await freshDatabase.read { try Event.order(by: \.id).fetchAll($0) }
         expectNoDifference(rebuiltEvents, expectedEvents)
-        let expectedSearch = try database.read { try CalendarEventBrowseSearch.order(by: \.uri).select { ($0.uri, $0.searchText) }.fetchAll($0) }
-        let rebuiltSearch = try freshDatabase.read { try CalendarEventBrowseSearch.order(by: \.uri).select { ($0.uri, $0.searchText) }.fetchAll($0) }
+        let expectedSearch = try await database.read { try CalendarEventBrowseSearch.order(by: \.uri).select { ($0.uri, $0.searchText) }.fetchAll($0) }
+        let rebuiltSearch = try await freshDatabase.read { try CalendarEventBrowseSearch.order(by: \.uri).select { ($0.uri, $0.searchText) }.fetchAll($0) }
         expectNoDifference(rebuiltSearch.map(\.0), expectedSearch.map(\.0))
         expectNoDifference(rebuiltSearch.map(\.1), expectedSearch.map(\.1))
-        let rebuiltCells = try freshDatabase.read { try CalendarMapCell.order(by: \.id).fetchAll($0) }
+        let rebuiltCells = try await freshDatabase.read { try CalendarMapCell.order(by: \.id).fetchAll($0) }
         #expect(rebuiltCells.count == cells.count)
         for (actual, expected) in zip(rebuiltCells, cells) {
             #expect(actual.id == expected.id && actual.count == expected.count && actual.activeCount == expected.activeCount)
             #expect(abs(actual.x - expected.x) < 0.00000001 && abs(actual.y - expected.y) < 0.00000001)
         }
-        let expectedOutcomes = try database.read { try CommunityCalendarDomainOutcome.order(by: \.uri).fetchAll($0) }
-        let rebuiltOutcomes = try freshDatabase.read { try CommunityCalendarDomainOutcome.order(by: \.uri).fetchAll($0) }
+        let expectedOutcomes = try await database.read { try CommunityCalendarDomainOutcome.order(by: \.uri).fetchAll($0) }
+        let rebuiltOutcomes = try await freshDatabase.read { try CommunityCalendarDomainOutcome.order(by: \.uri).fetchAll($0) }
         for (actual, expected) in zip(rebuiltOutcomes, expectedOutcomes) {
             #expect(actual.uri == expected.uri && actual.cid == expected.cid && actual.state == expected.state)
         }
         #expect(rebuiltOutcomes.count == expectedOutcomes.count)
         // Serving queries use the same compact rows and indexed search after the bulk build.
         let query = CalendarBrowseQuery.Parameters(catalogs: [ATProto.NSID(CommunityCalendarDomainAdapter.collection)], query: "music", limit: 50)
-        expectNoDifference(try freshStore.browseEventSummaries(query).events.map(\.uri), try store.browseEventSummaries(query).events.map(\.uri))
+        let rebuiltURIs = try await freshStore.browseEventSummaries(query).events.map(\.uri)
+        let originalURIs = try await store.browseEventSummaries(query).events.map(\.uri)
+        expectNoDifference(rebuiltURIs, originalURIs)
         print("Fresh canonical sample: records=\(records.count), fresh=\(fresh), validation=\(validation), invalid=\(invalid), incrementalInitial=\(initial), incrementalRebuild=\(rebuild)")
-        try database.read { db throws -> Void in
+        try await database.read { db throws -> Void in
             #expect(try CommunityCalendarDomainOutcome.all.fetchCount(db) == records.count)
             expectNoDifference(try Event.all.fetchCount(db), events)
             expectNoDifference(try CalendarMapRevision.order(by: \.id).select(\.revision).fetchAll(db), revisions)
             expectNoDifference(try CalendarMapCell.order(by: \.id).fetchAll(db), cells)
             #expect(try CommunityCalendarDomainOutcome.where { $0.adapterVersion.eq(-1) }.fetchCount(db) == 0)
             let preserved = try Row.fetchAll(db, sql: "SELECT uri, collection, cid, value, sequence, isDeleted FROM appViewIndexedRecords ORDER BY uri")
-            #expect(preserved == records)
+            #expect(preserved.map { Array($0.databaseValues) } == records)
             #expect(try String.fetchOne(db, sql: "PRAGMA quick_check") == "ok")
             let outcomes = try Row.fetchAll(db, sql: "SELECT state, COUNT(*) AS count FROM communityCalendarDomainOutcomes GROUP BY state")
             let plotted = try CalendarMapEvent.all.fetchCount(db)

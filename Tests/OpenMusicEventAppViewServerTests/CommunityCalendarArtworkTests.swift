@@ -11,7 +11,7 @@ import Testing
 
 @Suite(AppViewTestTime()) struct CommunityCalendarArtworkTests {
     @Test(arguments: ["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"])
-    func `published artwork reaches rows and details and disappears when removed`(mimeType: String) throws {
+    func `published artwork reaches rows and details and disappears when removed`(mimeType: String) async throws {
         let database = try DatabaseQueue()
         let store = try OpenMusicEventAppViewStore(database: database)
         let indexer = store.appViewRecordIndexer(tangledWebhookConfiguration: nil)
@@ -30,7 +30,7 @@ import Testing
                 cid: ATProto.CID(rawValue: "bafy-artwork"), value: JSONSerialization.data(withJSONObject: value), sequence: 1)
             _ = try indexer.apply(.put(record), checkpointID: "artwork")
         }
-        let diagnostics = try database.read { db in
+        let diagnostics = try await database.read { db in
             let outcome = try #require(try CommunityCalendarDomainOutcome.find(uri.description).fetchOne(db))
             return try JSONDecoder().decode([CommunityCalendarDomainAdapter.Diagnostic].self, from: outcome.diagnostics)
         }
@@ -42,7 +42,7 @@ import Testing
         expectNoDifference(detail.media.first?.url.absoluteString, "https://laugh.town/cdn/p/posters/concert.webp")
         expectNoDifference(detail.media.map(\.renderKind), [.fullImage, .fullImage])
         expectNoDifference(detail.media.last?.alt, "Concert poster")
-        let row = try #require(try store.browseEventSummaries(.init(catalogs: [catalog], dates: "all")).events.first)
+        let row = try #require(try await store.browseEventSummaries(.init(catalogs: [catalog], dates: "all")).events.first)
         expectNoDifference(row.markerMedia, detail.media.first)
         #expect(try store.containsWebBlob(record: uri, cid: blobCID))
         #expect(try !store.containsWebBlob(record: uri, cid: "unrelated"))
@@ -54,7 +54,8 @@ import Testing
         #expect(report.passed)
         let rebuilt = try OpenMusicEventAppViewStore(database: database)
         expectNoDifference(try rebuilt.communityCalendarEvent(uri: uri)?.media, detail.media)
-        expectNoDifference(try rebuilt.browseEventSummaries(.init(catalogs: [catalog], dates: "all")).events.first?.markerMedia, detail.media.first)
+        let rebuiltMarker = try await rebuilt.browseEventSummaries(.init(catalogs: [catalog], dates: "all")).events.first?.markerMedia
+        expectNoDifference(rebuiltMarker, detail.media.first)
         #expect(try rebuilt.containsWebBlob(record: uri, cid: blobCID))
 
         // A publisher removes the artwork: neither the row nor the blob route keeps stale media.
@@ -66,7 +67,8 @@ import Testing
             _ = try indexer.apply(.put(record), checkpointID: "artwork")
         }
         expectNoDifference(try store.communityCalendarEvent(uri: uri)?.media, [])
-        expectNoDifference(try store.browseEventSummaries(.init(catalogs: [catalog], dates: "all")).events.first?.markerMedia, nil)
+        let clearedMarker = try await store.browseEventSummaries(.init(catalogs: [catalog], dates: "all")).events.first?.markerMedia
+        expectNoDifference(clearedMarker, nil)
         #expect(try !store.containsWebBlob(record: uri, cid: blobCID))
     }
 

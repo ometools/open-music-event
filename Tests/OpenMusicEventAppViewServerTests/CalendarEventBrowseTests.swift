@@ -420,7 +420,7 @@ import Testing
         )
 
         let detail = try #require(
-            try rebuiltStore.calendarEvent(uri: canonicalID, appViewHost: "localhost")
+            try await rebuiltStore.calendarEvent(uri: canonicalID, appViewHost: "localhost")
         )
         expectNoDifference(
             detail.links.filter {
@@ -429,7 +429,7 @@ import Testing
             ["Enter Event|https://localhost/events/did%3Aplc%3Avenue/3mrdbziccpcaz"]
         )
         let communityDetail = try #require(
-            try rebuiltStore.calendarEvent(uri: communityURI, appViewHost: "localhost")
+            try await rebuiltStore.calendarEvent(uri: communityURI, appViewHost: "localhost")
         )
         #expect(!communityDetail.links.contains {
             $0.source == "app.openmusicevent.eventViewer"

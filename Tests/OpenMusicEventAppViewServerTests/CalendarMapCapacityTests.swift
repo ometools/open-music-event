@@ -6,8 +6,45 @@ import Testing
 @testable import OpenMusicEventAppViewServer
 
 @Suite struct CalendarMapCapacityTests {
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["OME_GLOBE_HTTP_FIXTURE_COUNT"] != nil))
+    func `prepare a restartable synthetic domain fixture for HTTP request stress`() async throws {
+        let count = Int(ProcessInfo.processInfo.environment["OME_GLOBE_HTTP_FIXTURE_COUNT"] ?? "") ?? 10_000
+        try #require((1...100_000).contains(count))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ome-http-stress-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let databaseURL = directory.appendingPathComponent("fixture.sqlite")
+        let database = try DatabasePool(path: databaseURL.path)
+        let store = try OpenMusicEventAppViewStore(rebuilding: database)
+        try await database.write { db in
+            for index in 1...count {
+                let latitude = index % 4 == 0 ? Double(index * 104729 % 160000) / 1000 - 80 : 30 + Double(index % 300) / 20
+                let longitude = index % 4 == 0 ? Double(index * 7919 % 360000) / 1000 - 180 : -120 + Double(index % 300) / 10
+                let uri = String(format: "at://did:plc:capacity/community.lexicon.calendar.event/%010d", index)
+                let payload = try JSONSerialization.data(withJSONObject: [
+                    "$type": "community.lexicon.calendar.event", "name": "Capacity event \(index)",
+                    "createdAt": "2026-01-01T00:00:00Z", "startsAt": "2028-01-01T00:00:00Z",
+                    "locations": [["$type": "community.lexicon.location.geo", "latitude": String(latitude), "longitude": String(longitude)]]
+                ])
+                try #sql("""
+                    INSERT INTO appViewIndexedRecords (uri, collection, cid, value, sequence, isDeleted)
+                    VALUES (\(uri), 'community.lexicon.calendar.event', 'bafy-synthetic-capacity', \(payload), \(index), 0)
+                    """).execute(db)
+            }
+        }
+        _ = try store.rebuildCanonicalCalendar(now: Date(timeIntervalSince1970: 1_800_000_000)) { print($0) }
+        // Exercise normal startup too: a scalar-only projection fixture would
+        // be discarded when its canonical source count does not match.
+        let reopened = try OpenMusicEventAppViewStore(database: database)
+        let projected = try await database.read { try CalendarEventBrowseProjection.all.fetchCount($0) }
+        #expect(projected == count)
+        let page = try await reopened.browseEventSummaries(.init(catalogs: [ATProto.NSID("community.lexicon.calendar.event")], dates: "all"))
+        #expect(page.events.count == min(50, count))
+        try await database.writeWithoutTransaction { try $0.checkpoint(.truncate) }
+        print("HTTP fixture: rows=\(projected), database=\(databaseURL.path)")
+    }
+
     @Test(.enabled(if: ProcessInfo.processInfo.environment["OME_GLOBE_BENCHMARK_COUNT"] != nil))
-    func `measure synthetic projection capacity separately from browser performance`() throws {
+    func `measure synthetic projection capacity separately from browser performance`() async throws {
         let count = Int(ProcessInfo.processInfo.environment["OME_GLOBE_BENCHMARK_COUNT"] ?? "") ?? 100_000
         guard (1...10_000_000).contains(count) else { return }
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ome-map-capacity-\(UUID().uuidString)")
@@ -17,7 +54,7 @@ import Testing
         let store = try OpenMusicEventAppViewStore(database: database)
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let started = ContinuousClock.now
-        try database.write { db in
+        try await database.write { db in
             try #sql("""
                 WITH RECURSIVE numbers(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM numbers WHERE i<\(count))
                 INSERT INTO \(CalendarEventBrowseProjection.self)
@@ -48,16 +85,16 @@ import Testing
         var tileMilliseconds: [Double] = [], listMilliseconds: [Double] = []
         var bytes = 0, featureCount = 0
         for _ in 0..<20 {
-            let tile = try store.mapTile(.init(z: 0, x: 0, y: 0, catalogs: catalogs, dates: "current"), generation: 2)
+            let tile = try await store.mapTile(.init(z: 0, x: 0, y: 0, catalogs: catalogs, dates: "current"), generation: 2)
             tileMilliseconds.append(tile.databaseMilliseconds)
             bytes = tile.gzip.count; featureCount = tile.featureCount
             let start = ContinuousClock.now
-            let page = try store.browseEventSummaries(.init(catalogs: catalogs), now: now)
+            let page = try await store.browseEventSummaries(.init(catalogs: catalogs), now: now)
             #expect(page.events.count == min(50, count))
             listMilliseconds.append(start.duration(to: .now).seconds * 1000)
         }
-        let cells = try database.read { try CalendarMapCell.all.fetchCount($0) }
-        try database.writeWithoutTransaction { try $0.checkpoint(.truncate) }
+        let cells = try await database.read { try CalendarMapCell.all.fetchCount($0) }
+        try await database.writeWithoutTransaction { try $0.checkpoint(.truncate) }
         let size = try databaseURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
         let result: [String: Any] = ["rows": count, "distribution": "75% repeated venues, 25% deterministic global coordinates",
             "databasePath": databaseURL.path, "databaseBytes": size, "mapCells": cells,
