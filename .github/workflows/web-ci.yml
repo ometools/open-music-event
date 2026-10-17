@@ -19,6 +19,8 @@ jobs:
           persist-credentials: false
       - name: Check shell syntax
         run: for script in Scripts/web-release/*.sh; do bash -n "$script"; done
+      - name: Test browser tile backpressure and cancellation over HTTP
+        run: node --test Scripts/web-release/test-event-tiles.mjs
       - name: Test release and promotion rules
         env:
           PYTHONDONTWRITEBYTECODE: '1'
@@ -50,3 +52,5 @@ jobs:
             .build/web-pr-run.*/tests*.xml
             .build/web-pr-run.*/phases.tsv
             .build/web-pr-run.*/smoke.log
+            .build/web-pr-run.*/request-stress/result.json
+            .build/web-pr-run.*/request-stress/server.log

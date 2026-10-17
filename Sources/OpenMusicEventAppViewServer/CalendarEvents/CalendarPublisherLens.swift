@@ -153,12 +153,13 @@ struct CalendarPublishersQuery: XRPC.Query, Sendable {
 }
 
 extension OpenMusicEventAppViewStore {
-    func calendarPublishers(_ parameters: CalendarPublishersQuery.Parameters) throws -> CalendarPublishersQuery.Page {
+    @concurrent
+    func calendarPublishers(_ parameters: CalendarPublishersQuery.Parameters) async throws -> CalendarPublishersQuery.Page {
         guard (parameters.query?.count ?? 0) <= 256, (parameters.cursor ?? 0) >= 0 else {
             throw CalendarBrowseError.invalidParameters
         }
         let selection = try CalendarPublisherLens(publishers: parameters.publishers)
-        return try database.read { db in
+        return try await database.read { db in
             let defaults = try CalendarPublisher.where { $0.did.in(communityCalendarExcludedPublishers.map(\.description)) }.select(\.id).fetchAll(db)
             let query = (parameters.query ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             let folded = CalendarPublisher.foldProfileSearch(query.hasPrefix("@") ? String(query.dropFirst()) : query)

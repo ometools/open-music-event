@@ -9,12 +9,12 @@ extension OpenMusicEventAppViewServer {
     static func installCalendarMapRoutes<Context: RequestContext>(on router: Router<Context>, store: OpenMusicEventAppViewStore?) {
         router.register(CalendarPublishersQuery.self) { parameters, _ in
             guard let store else { throw XRPC.ResponseError(.serviceUnavailable, error: "EventIndexUnavailable") }
-            do { return try store.calendarPublishers(parameters) }
+            do { return try await store.calendarPublishers(parameters) }
             catch is CalendarBrowseError { throw XRPC.ResponseError(.badRequest, error: "InvalidParameters") }
         }
         router.register(CalendarBrowseQuery.self) { parameters, _ in
             guard let store else { throw XRPC.ResponseError(.serviceUnavailable, error: "EventIndexUnavailable") }
-            do { return try store.browseEventSummaries(parameters) }
+            do { return try await store.browseEventSummaries(parameters) }
             catch is CalendarBrowseError { throw XRPC.ResponseError(.badRequest, error: "InvalidParameters") }
             catch is CalendarEventBrowseProjectionError { throw XRPC.ResponseError(.badRequest, error: "UnknownCatalog") }
             catch is OME.CalendarEvent.BrowseEvents.ParameterError { throw XRPC.ResponseError(.badRequest, error: "InvalidBounds") }
@@ -22,7 +22,7 @@ extension OpenMusicEventAppViewServer {
         }
         router.register(CalendarSearchMapQuery.self) { parameters, _ in
             guard let store else { throw XRPC.ResponseError(.serviceUnavailable, error: "EventIndexUnavailable") }
-            do { return try store.searchMapItems(parameters) }
+            do { return try await store.searchMapItems(parameters) }
             catch is CalendarBrowseError { throw XRPC.ResponseError(.badRequest, error: "InvalidParameters") }
         }
         router.get("/map/events/{z}/{x}/{tile}") { request, context async throws -> Response in

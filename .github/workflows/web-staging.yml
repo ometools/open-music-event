@@ -37,6 +37,8 @@ jobs:
           persist-credentials: false
       - name: Check deployment configuration
         run: python3 Scripts/web-release/pipeline.py preflight
+      - name: Test browser tile backpressure and cancellation over HTTP
+        run: node --test Scripts/web-release/test-event-tiles.mjs
       - name: Test release and promotion rules
         env:
           PYTHONDONTWRITEBYTECODE: '1'
@@ -63,4 +65,6 @@ jobs:
             .build/web-release-run.*/tests*.xml
             .build/web-release-run.*/phases.tsv
             .build/web-release-run.*/smoke.log
+            .build/web-release-run.*/request-stress/result.json
+            .build/web-release-run.*/request-stress/server.log
             .build/web-release/verified-manifest.json
