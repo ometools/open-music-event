@@ -205,7 +205,7 @@ private extension Event {
             },
             organizer: .init(id: organizerID),
             source: .init(collection: ATProto.NSID(Event.lexiconID.rawValue)),
-            timeZoneIdentifier: timeZone.identifier
+            timeZoneIdentifier: timeZone?.identifier
         )
     }
 }

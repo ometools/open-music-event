@@ -1253,15 +1253,16 @@ public struct EventBrowseDetail {
 
         public var dateText: String? {
             guard let record else { return event.detailDateText }
-            if case let .known(.day(startDay)) = record.start,
+            if let timeZone = record.timeZone,
+               case let .known(.day(startDay)) = record.start,
                case let .known(.day(endDay)) = record.end {
                 let formatter = DateIntervalFormatter()
-                formatter.timeZone = record.timeZone
+                formatter.timeZone = timeZone
                 formatter.dateStyle = .long
                 formatter.timeStyle = .none
                 return formatter.string(
-                    from: startDay.value.atStartOfDay(in: record.timeZone),
-                    to: endDay.value.atStartOfDay(in: record.timeZone)
+                    from: startDay.value.atStartOfDay(in: timeZone),
+                    to: endDay.value.atStartOfDay(in: timeZone)
                 )
             }
             let formatter = DateFormatter()

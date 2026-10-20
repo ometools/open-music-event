@@ -141,7 +141,9 @@ public struct LocationViewerView: View {
                                 .padding(.vertical, 4)
                             }
                         } header: {
-                            Text(location.name)
+                            if let name = location.name {
+                                Text(name)
+                            }
                         }
                     }
                 }
@@ -647,7 +649,7 @@ public struct EditableLocation: Identifiable, Equatable {
 
     init(_ location: Event.Location) {
         original = location
-        name = location.name
+        name = location.name ?? ""
         description = location.description ?? ""
         locators = (location.locators ?? []).map(EditableLocator.init)
         links = (location.links ?? []).map(EditableLink.init)
