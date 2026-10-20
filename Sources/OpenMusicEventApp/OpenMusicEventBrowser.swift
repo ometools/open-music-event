@@ -317,170 +317,173 @@ public struct Browse {
     public init() {}
 
     public struct State {
-        public init(
-            catalog: EventCatalog = .openMusicEvent,
-            events: [CalendarEvent] = [],
-            referenceDate: Date = .distantPast
-        ) {
-            self.catalog = catalog
-            self.events = events
-            self.referenceDate = referenceDate
-        }
+        public init() {}
 
-        public var catalog: EventCatalog
+        public var catalogs = EventCatalog.allCases
+        public var dateScope = DateScope.current
         public var errorMessage: String?
         public var eventDetail: EventBrowseDetail.State?
-        public var events: [CalendarEvent]
+        public var events: [OME.CalendarEvent.Summary] = []
+        public var cursor: String?
+        public var evaluatedAt: Date?
         public var isLoading = false
+        public var isLoadingMore = false
+        public var hasLoaded = false
+        public var moreError: String?
+        public var publisherSelection: EventBrowseClient.PublisherSelection?
+        public var requestGeneration = 0
         @Trigger public var refresh
-        public var referenceDate: Date
         public var searchText = ""
-        public var selectedDay: CalendarEvent.Day?
-        public var selectedMode: CalendarEvent.Mode?
-        public var sort = Sort.soonest
+    }
 
-        public var visibleEvents: [CalendarEvent] {
-            let filteredEvents = events
-                .filter { event in
-                    guard let selectedDay else { return true }
-                    return event.localStartDay == selectedDay
-                }
-                .filter { event in
-                    guard let selectedMode else { return true }
-                    return event.mode == selectedMode
-                }
-                .filter { event in
-                    let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !query.isEmpty else { return true }
-                    return event.name.localizedCaseInsensitiveContains(query)
-                        || event.organizer.name.localizedCaseInsensitiveContains(query)
-                        || (event.description?.localizedCaseInsensitiveContains(query) ?? false)
-                }
-
-            switch sort {
-            case .name:
-                return filteredEvents.sorted {
-                    $0.name.localizedStandardCompare($1.name) == .orderedAscending
-                }
-            case .soonest:
-                return filteredEvents.sorted(by: CalendarEvent.isSooner)
+    public enum DateScope: String, CaseIterable, Identifiable, Sendable {
+        case current, all
+        public var id: Self { self }
+        public var title: String {
+            switch self {
+            case .current: "Current and upcoming"
+            case .all: "All dates"
             }
-        }
-
-        public var happeningNowEvents: [CalendarEvent] {
-            visibleEvents.filter { event in
-                guard let startsAt = event.startsAt,
-                      let endsAt = event.endsAt
-                else { return false }
-                return startsAt <= referenceDate && referenceDate <= endsAt
-            }
-        }
-
-        public var upcomingEvents: [CalendarEvent] {
-            visibleEvents.filter { event in
-                guard let startsAt = event.startsAt else { return false }
-                return startsAt > referenceDate
-            }
-        }
-
-        public var pastEvents: [CalendarEvent] {
-            visibleEvents.filter { event in
-                guard let startsAt = event.startsAt else { return false }
-                let lastInstant = event.endsAt ?? startsAt
-                return lastInstant < referenceDate
-            }
-        }
-
-        public var undatedEvents: [CalendarEvent] {
-            visibleEvents.filter { $0.startsAt == nil }
         }
     }
 
     public enum Action {
-        case catalogSelected(EventCatalog)
-        case browseEventButtonTapped(ATProto.URI)
-        case daySelected(CalendarEvent.Day?)
+        case catalogToggled(EventCatalog)
+        case browseEventButtonTapped(String)
+        case dateScopeSelected(DateScope)
         case didPullToRefresh
         case eventDetail(EventBrowseDetail.Action)
-        case modeSelected(CalendarEvent.Mode?)
+        case loadMoreButtonTapped
         case searchTextChanged(String)
-        case sortSelected(Sort)
         case task
     }
 
-    public enum Sort: Equatable, Sendable {
-        case name
-        case soonest
-    }
-
-    @Dependency(\.calendarEvents) var calendarEvents
-    @Dependency(\.date.now) var now
+    @Dependency(\.eventBrowse) var eventBrowse
+    @Dependency(\.continuousClock) var clock
+    @StoreTaskID var browseRequest
 
     public var body: some Feature {
         Update { state, action in
+            let loadMore: Bool
+            let debounce: Bool
             switch action {
-            case let .catalogSelected(catalog):
-                guard state.catalog != catalog else { return }
-                state.catalog = catalog
-                state.events = []
-                state.selectedDay = nil
-                state.selectedMode = nil
-                fallthrough
-
-            case .didPullToRefresh, .task:
-                let catalog = state.catalog
-                state.errorMessage = nil
-                state.isLoading = true
-                state.referenceDate = now
-                store.addTask {
-                    do {
-                        let page = try await calendarEvents.browse(
-                            CalendarEvent.PageRequest(collection: catalog.collection)
-                        )
-                        try store.modify {
-                            guard $0.catalog == catalog else { return }
-                            $0.events = page.events
-                            $0.isLoading = false
-                        }
-                    } catch is CancellationError {
-                        throw CancellationError()
-                    } catch {
-                        try store.modify {
-                            guard $0.catalog == catalog else { return }
-                            $0.errorMessage = "Unable to load \(catalog.title.lowercased())."
-                            $0.isLoading = false
-                        }
-                    }
-                }
-
             case let .browseEventButtonTapped(uri):
-                guard let event = state.events.first(where: { $0.uri == uri }) else { return }
-                state.eventDetail = EventBrowseDetail.State(event: event)
-
-            case let .daySelected(day):
-                state.selectedDay = day
+                guard let summary = state.events.first(where: { $0.uri == uri }) else { return }
+                do {
+                    state.eventDetail = try EventBrowseDetail.State(event: summary.browsePreview())
+                } catch {
+                    state.errorMessage = "Unable to open this event. Please refresh and try again."
+                }
+                return
 
             case .eventDetail:
                 return
 
-            case let .modeSelected(mode):
-                state.selectedMode = mode
+            case let .catalogToggled(catalog):
+                if state.catalogs.contains(catalog) {
+                    state.catalogs.removeAll { $0 == catalog }
+                } else {
+                    state.catalogs.append(catalog)
+                }
+                loadMore = false
+                debounce = false
 
-            case let .searchTextChanged(searchText):
-                state.searchText = searchText
+            case let .dateScopeSelected(scope):
+                guard state.dateScope != scope else { return }
+                state.dateScope = scope
+                loadMore = false
+                debounce = false
 
-            case let .sortSelected(sort):
-                state.sort = sort
+            case let .searchTextChanged(text):
+                let text = String(text.prefix(256))
+                guard state.searchText != text else { return }
+                state.searchText = text
+                loadMore = false
+                debounce = !text.isEmpty
+
+            case .loadMoreButtonTapped:
+                guard !state.isLoading, !state.isLoadingMore, state.cursor != nil else { return }
+                loadMore = true
+                debounce = false
+
+            case .task:
+                guard !state.hasLoaded, !state.isLoading else { return }
+                loadMore = false
+                debounce = false
+
+            case .didPullToRefresh:
+                loadMore = false
+                debounce = false
+            }
+
+            state.errorMessage = nil
+            state.moreError = nil
+            if loadMore {
+                state.isLoadingMore = true
+            } else {
+                state.requestGeneration += 1
+                state.events = []
+                state.cursor = nil
+                state.evaluatedAt = nil
+                state.isLoading = !state.catalogs.isEmpty
+                state.isLoadingMore = false
+                state.hasLoaded = false
+            }
+            guard !state.catalogs.isEmpty else { return }
+            let generation = state.requestGeneration
+            let selection = state.publisherSelection
+            let query = state.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let parameters = OME.CalendarEvent.BrowseSummaries.Parameters(
+                catalogs: state.catalogs.map(\.collection), query: query.isEmpty ? nil : query,
+                cursor: state.cursor, limit: 50, dates: state.dateScope.rawValue
+            )
+            store.addTask(id: browseRequest) {
+                do {
+                    if debounce { try await clock.sleep(for: .milliseconds(300)) }
+                    guard store.requestGeneration == generation else { return }
+                    let publishers: EventBrowseClient.PublisherSelection
+                    if let selection {
+                        publishers = selection
+                    } else {
+                        publishers = try await eventBrowse.defaults()
+                    }
+                    guard store.requestGeneration == generation else { return }
+                    var request = parameters
+                    request.publisherMode = publishers.mode
+                    request.publishers = publishers.publishers
+                    let page = try await eventBrowse.browse(request)
+                    try store.modify {
+                        guard $0.requestGeneration == generation else { return }
+                        $0.publisherSelection = publishers
+                        // Retries and adjacent pages may overlap; preserve the AppView's order.
+                        var seen = Set($0.events.map(\.uri))
+                        $0.events.append(contentsOf: page.events.filter { seen.insert($0.uri).inserted })
+                        $0.cursor = page.hasMore ? page.cursor : nil
+                        $0.evaluatedAt = page.evaluatedAt
+                        $0.isLoading = false
+                        $0.isLoadingMore = false
+                        $0.hasLoaded = true
+                    }
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    try store.modify {
+                        guard $0.requestGeneration == generation else { return }
+                        if loadMore {
+                            $0.moreError = "Unable to load more events. Try again."
+                        } else {
+                            $0.errorMessage = "Unable to load events. Pull to refresh and try again."
+                        }
+                        $0.isLoading = false
+                        $0.isLoadingMore = false
+                    }
+                }
             }
         }
         .onTrigger(store.refresh) { _ in
-            store.addTask {
-                try await store.send(.didPullToRefresh)?.value
-            }
+            store.addTask { try await store.send(.didPullToRefresh)?.value }
         }
-        .ifLet(\.eventDetail) {
-            EventBrowseDetail()
-        }
+        .ifLet(\.eventDetail) { EventBrowseDetail() }
     }
 }
 
@@ -512,7 +515,6 @@ public enum EventCatalog: String, CaseIterable, Equatable, Identifiable, Sendabl
 public struct BrowseView: View {
     @Bindable var store: StoreOf<Browse>
     let accountStore: StoreOf<Account>
-    @State var isDatePickerPresented = false
 
     public init(store: StoreOf<Browse>, accountStore: StoreOf<Account>) {
         self.store = store
@@ -523,169 +525,148 @@ public struct BrowseView: View {
         List {
             if let errorMessage = store.errorMessage {
                 PortableContentUnavailableView(
-                    "Events Unavailable",
-                    systemImage: "exclamationmark.triangle",
+                    "Events Unavailable", systemImage: "exclamationmark.triangle",
                     description: Text(errorMessage)
                 )
-            } else if store.isLoading && store.events.isEmpty {
+            } else if store.isLoading {
                 HStack {
                     Spacer()
                     ProgressView("Loading events")
                     Spacer()
                 }
-            } else if store.visibleEvents.isEmpty {
+            } else if store.events.isEmpty {
                 EmptyBrowserState(
-                    title: "No Events",
-                    systemImage: "calendar",
-                    message: "No events match the current browse selection."
+                    title: "No Events", systemImage: "calendar",
+                    message: store.catalogs.isEmpty
+                        ? "Choose a catalog in Filters to browse events."
+                        : "No events match the current browse selection."
                 )
-            } else if let selectedDay = store.selectedDay {
-                Section(selectedDay.formatted(in: .current)) {
-                    browseEventRows(store.visibleEvents)
-                }
             } else {
-                Section("Happening Now") {
-                    if store.happeningNowEvents.isEmpty {
-                        Text("Nothing is happening right now.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        browseEventRows(store.happeningNowEvents)
+                ForEach(store.events) { event in
+                    Button {
+                        store.send(.browseEventButtonTapped(event.uri))
+                    } label: {
+                        BrowseSummaryRow(event: event)
+                            .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("button.browse-event.\(event.uri.split(separator: "/").last ?? "unknown")")
                 }
-
-                if !store.upcomingEvents.isEmpty {
-                    Section("Upcoming") {
-                        browseEventRows(store.upcomingEvents)
-                    }
+                if let moreError = store.moreError {
+                    Text(moreError).foregroundStyle(.secondary)
                 }
-
-                if !store.undatedEvents.isEmpty {
-                    Section("More Events") {
-                        browseEventRows(store.undatedEvents)
+                if store.cursor != nil {
+                    Button {
+                        store.send(.loadMoreButtonTapped)
+                    } label: {
+                        HStack {
+                            Text("Load more")
+                            if store.isLoadingMore { ProgressView() }
+                        }
                     }
-                }
-
-                if !store.pastEvents.isEmpty {
-                    Section("Past Events") {
-                        browseEventRows(store.pastEvents)
-                    }
+                    .disabled(store.isLoadingMore)
+                    .accessibilityIdentifier("button.browse-load-more")
                 }
             }
         }
         .navigationTitle("Browse")
-        .navigationDestination(
-            item: $store.scope(\.eventDetail)
-        ) { detailStore in
+        .navigationDestination(item: $store.scope(\.eventDetail)) { detailStore in
             EventBrowseDetailView(store: detailStore)
         }
-        .searchable(text: $store.searchText, prompt: "Search events or organizers")
-        .refreshable {
-            await store.send(.didPullToRefresh)?.value
-        }
-        .task {
-            await store.send(.task)?.value
-        }
+        .searchable(text: Binding(
+            get: { store.searchText },
+            set: { store.send(.searchTextChanged($0)) }
+        ), prompt: "Events, artists, places")
+        .refreshable { await store.send(.didPullToRefresh)?.value }
+        .task { await store.send(.task)?.value }
         .toolbar {
             #if os(macOS)
-            ToolbarItem(placement: .automatic) {
-                AccountPicker(store: accountStore)
-            }
+            ToolbarItem(placement: .automatic) { AccountPicker(store: accountStore) }
             #else
-            ToolbarItem(placement: .topBarLeading) {
-                AccountPicker(store: accountStore)
-            }
+            ToolbarItem(placement: .topBarLeading) { AccountPicker(store: accountStore) }
             #endif
-            ToolbarItemGroup {
-                #if os(Android)
-                AndroidBrowseDatePickerButton(
-                    selectedDay: store.selectedDay,
-                    daySelected: { store.send(.daySelected($0)) }
-                )
-                #else
-                Button {
-                    isDatePickerPresented = true
-                } label: {
-                    Label("Choose a date", systemImage: "calendar")
-                }
-                .popover(isPresented: $isDatePickerPresented) {
-                    BrowseDatePicker(
-                        selectedDay: store.selectedDay,
-                        daySelected: { store.send(.daySelected($0)) }
-                    )
-                }
-                #endif
-
+            ToolbarItem {
                 Menu {
                     ForEach(EventCatalog.allCases) { catalog in
                         Button {
-                            store.send(.catalogSelected(catalog))
+                            store.send(.catalogToggled(catalog))
                         } label: {
-                            if store.catalog == catalog {
+                            if store.catalogs.contains(catalog) {
                                 Label(catalog.title, systemImage: "checkmark")
                             } else {
                                 Text(catalog.title)
                             }
                         }
+                        .accessibilityIdentifier("button.browse-catalog.\(catalog.rawValue)")
                     }
                     Divider()
-                    browseModeButton("All formats", mode: nil)
-                    browseModeButton("In person", mode: .inPerson)
-                    browseModeButton("Virtual", mode: .virtual)
-                    browseModeButton("Hybrid", mode: .hybrid)
-                    Divider()
-                    browseSortButton("Soonest first", sort: .soonest)
-                    browseSortButton("Name", sort: .name)
+                    ForEach(Browse.DateScope.allCases) { scope in
+                        Button {
+                            store.send(.dateScopeSelected(scope))
+                        } label: {
+                            if store.dateScope == scope {
+                                Label(scope.title, systemImage: "checkmark")
+                            } else {
+                                Text(scope.title)
+                            }
+                        }
+                        .accessibilityIdentifier("button.browse-dates.\(scope.rawValue)")
+                    }
                 } label: {
-                    Label("Filter and sort", systemImage: "line.3.horizontal.decrease.circle")
+                    Label("Filters", systemImage: "line.3.horizontal.decrease.circle")
+                }
+                .accessibilityIdentifier("button.browse-filters")
+            }
+        }
+    }
+}
+
+struct BrowseSummaryRow: View {
+    let event: OME.CalendarEvent.Summary
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            CachedRemoteImage(url: event.markerMedia?.url, targetSize: .init(width: 60, height: 60)) { phase in
+                if case let .success(image, _) = phase {
+                    image.resizable()
+                        .aspectRatio(contentMode: event.markerMedia?.renderKind == .transparent ? .fit : .fill)
+                } else {
+                    Image(systemName: "calendar").frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 60, height: 60)
+            .clipped()
+            .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(event.name).font(.headline)
+                if let dateText { Text(dateText).font(.subheadline).foregroundStyle(.secondary) }
+                if let location = event.locationSummary {
+                    Text(location).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+                }
+                if let publisher = event.publisherName {
+                    HStack(spacing: 5) {
+                        if let avatar = event.publisherAvatarURL.flatMap(URL.init(string:)) {
+                            CachedRemoteImage(url: avatar, targetSize: .init(width: 16, height: 16)) { phase in
+                                if case let .success(image, _) = phase { image.resizable().scaledToFill() }
+                            }
+                            .frame(width: 16, height: 16).clipShape(Circle()).accessibilityHidden(true)
+                        }
+                        Text(publisher).font(.caption).foregroundStyle(.secondary)
+                    }
                 }
             }
         }
     }
 
-    @ViewBuilder
-    func browseEventRows(_ events: [CalendarEvent]) -> some View {
-        ForEach(events) { event in
-            Button {
-                store.send(.browseEventButtonTapped(event.uri))
-            } label: {
-                BrowseCalendarEventRow(
-                    event: event,
-                    artworkSources: event.artworkSources
-                )
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier(
-                "button.browse-event.\(event.uri.rkey?.rawValue ?? "unknown")"
-            )
-        }
-    }
-
-    @ViewBuilder
-    func browseModeButton(_ title: String, mode: CalendarEvent.Mode?) -> some View {
-        Button {
-            store.send(.modeSelected(mode))
-        } label: {
-            if store.selectedMode == mode {
-                Label(title, systemImage: "checkmark")
-            } else {
-                Text(title)
-            }
-        }
-    }
-
-    @ViewBuilder
-    func browseSortButton(_ title: String, sort: Browse.Sort) -> some View {
-        Button {
-            store.send(.sortSelected(sort))
-        } label: {
-            if store.sort == sort {
-                Label(title, systemImage: "checkmark")
-            } else {
-                Text(title)
-            }
-        }
+    var dateText: String? {
+        guard let startsAt = event.startsAt else { return nil }
+        let formatter = DateFormatter()
+        formatter.timeZone = event.timeZoneIdentifier.flatMap(TimeZone.init(identifier:)) ?? .gmt
+        formatter.dateStyle = .medium
+        formatter.timeStyle = event.dateOnly ? .none : .short
+        let text = formatter.string(from: startsAt)
+        return event.timeZoneIdentifier == nil && !event.dateOnly ? text + " UTC" : text
     }
 }
 
@@ -1013,204 +994,6 @@ private extension CalendarEvent.Media {
     }
 }
 
-#if os(Android)
-struct AndroidBrowseDatePickerButton: View {
-    @Dependency(\.date.now) var now
-    let selectedDay: CalendarEvent.Day?
-    let daySelected: (CalendarEvent.Day?) -> Void
-
-    var body: some View {
-        ComposeView {
-            AndroidBrowseDatePickerComposer(
-                selectedDate: selectedDay?.date(in: .current) ?? now,
-                dateSelected: { date in
-                    daySelected(CalendarEvent.Day(date, timeZone: .current))
-                },
-                allDatesSelected: {
-                    daySelected(nil)
-                }
-            )
-        }
-    }
-}
-#endif
-
-#if SKIP
-struct AndroidBrowseDatePickerComposer: ContentComposer {
-    let selectedDate: Date
-    let dateSelected: (Date) -> Void
-    let allDatesSelected: () -> Void
-
-    init(
-        selectedDate: Date,
-        dateSelected: @escaping (Date) -> Void,
-        allDatesSelected: @escaping () -> Void
-    ) {
-        self.selectedDate = selectedDate
-        self.dateSelected = dateSelected
-        self.allDatesSelected = allDatesSelected
-    }
-
-    // SKIP INSERT: @OptIn(ExperimentalMaterial3Api::class)
-    @Composable func Compose(context: ComposeContext) {
-        let isPresented = remember { mutableStateOf(false) }
-
-        androidx.compose.material3.IconButton(
-            onClick: { isPresented.value = true },
-            modifier: context.modifier
-        ) {
-            androidx.compose.material3.Icon(
-                imageVector: Icons.Outlined.DateRange,
-                contentDescription: "Choose a date"
-            )
-        }
-
-        guard isPresented.value else { return }
-
-        let timeZone = TimeZone.current
-        let pickerState = androidx.compose.material3.rememberDatePickerState(
-            initialSelectedDateMillis: datePickerMillis(
-                from: selectedDate,
-                timeZone: timeZone
-            )
-        )
-        androidx.compose.material3.DatePickerDialog(
-            onDismissRequest: { isPresented.value = false },
-            confirmButton: {
-                androidx.compose.material3.TextButton(
-                    onClick: {
-                        if let millis = pickerState.selectedDateMillis {
-                            dateSelected(
-                                date(
-                                    fromDatePickerMillis: millis,
-                                    timeZone: timeZone
-                                )
-                            )
-                        }
-                        isPresented.value = false
-                    }
-                ) {
-                    androidx.compose.material3.Text("Done")
-                }
-            },
-            dismissButton: {
-                androidx.compose.material3.TextButton(
-                    onClick: {
-                        allDatesSelected()
-                        isPresented.value = false
-                    }
-                ) {
-                    androidx.compose.material3.Text("All Dates")
-                }
-            }
-        ) {
-            androidx.compose.material3.DatePicker(state: pickerState)
-        }
-    }
-
-    private func datePickerMillis(from date: Date, timeZone: TimeZone) -> Long {
-        let timeZoneOffset = Double(timeZone.secondsFromGMT(for: date))
-        return Long((date.timeIntervalSince1970 + timeZoneOffset) * 1_000)
-    }
-
-    private func date(fromDatePickerMillis millis: Long, timeZone: TimeZone) -> Date {
-        let utcDate = Date(timeIntervalSince1970: Double(millis) / 1_000)
-        let timeZoneOffset = Double(timeZone.secondsFromGMT(for: utcDate))
-        return Date(
-            timeIntervalSince1970: utcDate.timeIntervalSince1970 - timeZoneOffset
-        )
-    }
-}
-#endif
-
-enum BrowseDatePickerConversion {
-    static func datePickerMilliseconds(
-        from date: Date,
-        timeZone: TimeZone
-    ) -> Double {
-        let timeZoneOffset = Double(timeZone.secondsFromGMT(for: date))
-        return (date.timeIntervalSince1970 + timeZoneOffset) * 1_000
-    }
-
-    static func date(
-        fromDatePickerMilliseconds milliseconds: Double,
-        timeZone: TimeZone
-    ) -> Date {
-        let utcDate = Date(timeIntervalSince1970: milliseconds / 1_000)
-        let timeZoneOffset = Double(timeZone.secondsFromGMT(for: utcDate))
-        return Date(
-            timeIntervalSince1970: utcDate.timeIntervalSince1970 - timeZoneOffset
-        )
-    }
-}
-
-struct BrowseDatePicker: View {
-    @Environment(\.dismiss) var dismiss
-    @State var selection: Date
-    let daySelected: (CalendarEvent.Day?) -> Void
-
-    init(
-        selectedDay: CalendarEvent.Day?,
-        daySelected: @escaping (CalendarEvent.Day?) -> Void
-    ) {
-        @Dependency(\.date.now) var now
-        _selection = State(
-            initialValue: selectedDay?.date(in: .current) ?? now
-        )
-        self.daySelected = daySelected
-    }
-
-    var body: some View {
-        VStack(spacing: 12) {
-            #if os(Android)
-            DatePicker("Date", selection: $selection, displayedComponents: .date)
-            #else
-            DatePicker("Date", selection: $selection, displayedComponents: .date)
-                .datePickerStyle(.graphical)
-            #endif
-            HStack {
-                Button("All Dates") {
-                    daySelected(nil)
-                    dismiss()
-                }
-                Spacer()
-                Button("Done") {
-                    dismiss()
-                }
-                .buttonStyle(.borderedProminent)
-            }
-        }
-        .padding()
-        .frame(minWidth: 320)
-        .onChange(of: selection) { _, selection in
-            daySelected(CalendarEvent.Day(selection, timeZone: .current))
-        }
-    }
-}
-
-extension CalendarEvent.Day {
-    func date(in timeZone: TimeZone) -> Date {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = timeZone
-        return calendar.date(
-            from: DateComponents(
-                timeZone: timeZone,
-                year: year,
-                month: month,
-                day: day
-            )
-        )!
-    }
-
-    func formatted(in timeZone: TimeZone) -> String {
-        let formatter = DateFormatter()
-        formatter.timeZone = timeZone
-        formatter.dateStyle = .long
-        formatter.timeStyle = .none
-        return formatter.string(from: date(in: timeZone))
-    }
-}
-
 @Feature
 public struct EventBrowseDetail {
     public init() {}
@@ -1300,7 +1083,7 @@ public struct EventBrowseDetail {
     }
 
     @Dependency(\.date.now) var now
-    @Dependency(\.calendarEvents) var calendarEvents
+    @Dependency(\.eventBrowse) var eventBrowse
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.getSelectedOAuthSessionID) var selectedAccountID
     @Dependency(\.eventRecords) var eventRecords
@@ -1379,7 +1162,7 @@ public struct EventBrowseDetail {
                             let cached = try await database.read { db in
                                 try Event.find(eventURI).fetchOne(db)
                             }
-                            if let cached, let advertisedCID, cached.cid != advertisedCID,
+                            if let cached, advertisedCID == nil || cached.cid != advertisedCID,
                                consumer.accountDID == nil {
                                 let locallyAuthored = try await database.read { db in
                                     try CanonicalSourceEventIdentity.find(eventURI).fetchOne(db) != nil
@@ -1412,7 +1195,7 @@ public struct EventBrowseDetail {
                                 }
                             }
                         } else {
-                            let event = try await calendarEvents.event(eventURI)
+                            let event = try await eventBrowse.event(eventURI)
                             try store.modify { $0.event = event }
                         }
                         let record = try await database.read { db in

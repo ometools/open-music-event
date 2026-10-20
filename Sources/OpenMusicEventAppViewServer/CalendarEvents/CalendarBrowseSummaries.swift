@@ -4,27 +4,9 @@ import GRDB
 import OpenMusicEventLexicon
 import SQLiteData
 
-struct CalendarBrowseQuery: XRPC.Query, Sendable {
-    static let nsid = ATProto.NSID("app.openmusicevent.calendar.browseEventSummaries")
-    typealias Input = Never
-    typealias Output = CalendarSummaryPage
-    var parameters: Parameters
-
-    struct Parameters: Codable, Equatable, Sendable {
-        var catalogs: [ATProto.NSID]
-        var query: String? = nil
-        var north: Double? = nil
-        var south: Double? = nil
-        var east: Double? = nil
-        var west: Double? = nil
-        var cursor: String? = nil
-        var limit: Int? = nil
-        var dates: String? = nil
-        var cell: String? = nil
-        var publisherMode: String? = nil
-        var publishers: [Int]? = nil
-    }
-}
+typealias CalendarBrowseQuery = OME.CalendarEvent.BrowseSummaries
+typealias CalendarSummaryPage = OME.CalendarEvent.SummaryPage
+typealias CalendarEventSummary = OME.CalendarEvent.Summary
 
 struct CalendarSearchMapQuery: XRPC.Query, Sendable {
     static let nsid = ATProto.NSID("app.openmusicevent.calendar.getSearchMapItems")
@@ -43,33 +25,6 @@ struct CalendarSearchMapPage: Codable, Sendable {
     var clusters: [OME.CalendarEvent.MapCluster]
     var clusterMembers: [String: [String]]
     var metrics: OME.CalendarEvent.MapItemPage.Metrics
-}
-
-struct CalendarSummaryPage: Codable, Sendable {
-    var events: [CalendarEventSummary]
-    var cursor: String?
-    var hasMore: Bool
-    var evaluatedAt: Date
-}
-
-struct CalendarEventSummary: Codable, Equatable, Sendable {
-    var uri: String
-    var catalog: String
-    var name: String
-    var startsAt: Date?
-    var endsAt: Date?
-    var latitude: Double?
-    var longitude: Double?
-    var markerMedia: OME.CalendarEvent.Media?
-    var timeZoneIdentifier: String?
-    var locationSummary: String?
-    var locality: String?
-    var region: String?
-    var country: String?
-    var publisherName: String?
-    var publisherAvatarURL: String?
-    var dateOnly: Bool
-    var hasEventViewer: Bool
 }
 
 @Selection

@@ -247,6 +247,9 @@ extension OME {
             : .openMusicEventAndAtmo(
                 appViewHost: uiAutomation == .publication ? "metadata.ome-auth.test" : environment.appViewHost
             )
+        dependencies.eventBrowse = uiAutomation != .normal && uiAutomation != .publication
+            ? .uiAutomation(database: database)
+            : .appView(host: uiAutomation == .publication ? "metadata.ome-auth.test" : environment.appViewHost)
         if uiAutomation == .normal || uiAutomation == .publication {
             let host: ATProto.PDSHost = uiAutomation == .publication ? "metadata.ome-auth.test" : environment.appViewHost
             dependencies.eventRecords = .appView(host: host)

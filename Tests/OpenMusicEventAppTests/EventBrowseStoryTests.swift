@@ -16,7 +16,7 @@ import HummingbirdTesting
 import IssueReporting
 @testable import OpenMusicEventApp
 import OpenMusicEventAppEventViewer
-import OpenMusicEventAppViewServer
+@testable import OpenMusicEventAppViewServer
 import OpenMusicEventDatabase
 import OpenMusicEventImages
 import OpenMusicEventLexicon
@@ -64,6 +64,8 @@ struct EventBrowseStoryTests {
             try Event.insert { firstEvent }.execute(db)
         }
 
+        try appViewStore.rebuildCalendarEventBrowseProjection()
+
         let appViewRequests = TestMutex<[String]>([])
         let app = try OpenMusicEventAppViewServer.application(
             configuration: AppViewConfiguration(port: 0),
@@ -71,7 +73,7 @@ struct EventBrowseStoryTests {
         )
         let getEventsRequestCount: @Sendable () -> Int = {
             appViewRequests.withLock {
-                $0.count { $0.hasPrefix("/xrpc/events.openmusic.getEvents") }
+                $0.count { $0.hasPrefix("/xrpc/app.openmusicevent.calendar.browseEventSummaries") }
             }
         }
         try await app.test(.router) { server in
@@ -115,11 +117,11 @@ struct EventBrowseStoryTests {
                     store.scope(\.browser).spawn(\.browse)
                 }
 
-                let firstLoad = await MainActor.run { browse.send(.task) }
+                let firstLoad = await MainActor.run { browse.send(.dateScopeSelected(.all)) }
                 await firstLoad?.value
                 await MainActor.run {
-                    expectNoDifference(browse.catalog, .openMusicEvent)
-                    expectNoDifference(browse.events.map(\.uri), [firstID])
+                    expectNoDifference(browse.catalogs, EventCatalog.allCases)
+                    expectNoDifference(browse.events.map(\.uri), [firstID.description])
                     expectNoDifference(browse.events.map(\.name), ["Wicked Woods 2026"])
                     expectNoDifference(browse.errorMessage, nil)
                     expectNoDifference(getEventsRequestCount(), 1)
@@ -128,12 +130,13 @@ struct EventBrowseStoryTests {
                 try await appViewDatabase.write { db in
                     try Event.insert { secondEvent }.execute(db)
                 }
+                try appViewStore.rebuildCalendarEventBrowseProjection()
                 let refresh = await MainActor.run { browse.send(.didPullToRefresh) }
                 await refresh?.value
                 await MainActor.run {
                     expectNoDifference(
                         Set(browse.events.map(\.uri)),
-                        Set([firstID, secondID])
+                        Set([firstID.description, secondID.description])
                     )
                     expectNoDifference(getEventsRequestCount(), 2)
                     expectNoDifference(browse.errorMessage, nil)
@@ -434,38 +437,6 @@ struct EventBrowseStoryTests {
         expectNoDifference(presentation.title, "Organizer")
     }
 
-    @Test @MainActor
-    func `the calendar picker preserves the local day and can clear the filter`() throws {
-        let denver = try #require(TimeZone(identifier: "America/Denver"))
-        let selectedDay = CalendarEvent.Day(year: 2026, month: 8, day: 3)
-
-        // Material stores a selected date as UTC-midnight milliseconds. Converting
-        // through that representation must preserve the browser day outside UTC.
-        let selectedDate = selectedDay.date(in: denver)
-        let milliseconds = BrowseDatePickerConversion.datePickerMilliseconds(
-            from: selectedDate,
-            timeZone: denver
-        )
-        let materialDate = BrowseDatePickerConversion.date(
-            fromDatePickerMilliseconds: milliseconds,
-            timeZone: denver
-        )
-        expectNoDifference(
-            CalendarEvent.Day(materialDate, timeZone: denver),
-            selectedDay
-        )
-
-        let store = Store(initialState: Browse.State()) {
-            Browse()
-        }
-
-        // Choosing a date filters Browse, and All Dates removes that filter.
-        store.send(.daySelected(selectedDay))
-        expectNoDifference(store.selectedDay, selectedDay)
-        store.send(.daySelected(nil))
-        #expect(store.selectedDay == nil)
-    }
-
     @Test
     func `canonical Event media puts the poster first in browse artwork`() async throws {
         let eventID = try #require(Event.ID(
@@ -556,102 +527,6 @@ struct EventBrowseStoryTests {
             calendarEvent.organizationArtworkSources.map(\.kind),
             [.logo, .primaryImage, .primaryImage, .primaryImage, .logo]
         )
-    }
-
-    @Test
-    func `browse starts with happening now and keeps later events upcoming`() throws {
-        let organizerID = try #require(DID("did:plc:organizer"))
-        let happeningNow = try event(
-            uri: "at://did:plc:organizer/events.openmusic.event/3mrdbziccpcah",
-            name: "Happening Now",
-            organizerID: organizerID,
-            startsAt: Date(timeIntervalSince1970: 100),
-            endsAt: Date(timeIntervalSince1970: 300),
-            collection: ATProto.NSID(Event.lexiconID.rawValue)
-        )
-        let upcoming = try event(
-            uri: "at://did:plc:organizer/events.openmusic.event/3mrdbziccpcai",
-            name: "Upcoming",
-            organizerID: organizerID,
-            startsAt: Date(timeIntervalSince1970: 400),
-            collection: ATProto.NSID(Event.lexiconID.rawValue)
-        )
-        let past = try event(
-            uri: "at://did:plc:organizer/events.openmusic.event/3mrdbziccpcaj",
-            name: "Past",
-            organizerID: organizerID,
-            startsAt: Date(timeIntervalSince1970: 10),
-            endsAt: Date(timeIntervalSince1970: 90),
-            collection: ATProto.NSID(Event.lexiconID.rawValue)
-        )
-
-        let browse = Browse.State(
-            events: [upcoming, past, happeningNow],
-            referenceDate: Date(timeIntervalSince1970: 200)
-        )
-
-        expectNoDifference(browse.happeningNowEvents.map(\.name), ["Happening Now"])
-        expectNoDifference(browse.upcomingEvents.map(\.name), ["Upcoming"])
-        expectNoDifference(browse.pastEvents.map(\.name), ["Past"])
-    }
-
-    @Test @MainActor
-    func `the browser opens on canonical Events and can switch to community calendar events`() async throws {
-        let organizerID = try #require(DID("did:plc:organizer"))
-        let omeEvent = try event(
-            uri: "at://did:plc:organizer/events.openmusic.event/3mrdbziccpcah",
-            name: "Summer Festival",
-            organizerID: organizerID,
-            startsAt: Date(timeIntervalSince1970: 100),
-            collection: ATProto.NSID(Event.lexiconID.rawValue)
-        )
-        let calendarEvent = try event(
-            uri: "at://did:plc:organizer/community.lexicon.calendar.event/dance",
-            name: "Community Dance",
-            organizerID: organizerID,
-            startsAt: Date(timeIntervalSince1970: 200),
-            collection: "community.lexicon.calendar.event"
-        )
-
-        await withDependencies {
-            $0.date = .constant(Date(timeIntervalSince1970: 0))
-            $0.calendarEvents = CalendarEventsClient(
-                browse: { request in
-                    switch request.collection {
-                    case ATProto.NSID(Event.lexiconID.rawValue):
-                        CalendarEvent.Page(events: [omeEvent])
-                    case "community.lexicon.calendar.event":
-                        CalendarEvent.Page(events: [calendarEvent])
-                    default:
-                        throw CalendarEventsClientError.collectionNotServed(request.collection)
-                    }
-                },
-                event: { _ in throw CalendarEventsClientError.unimplemented },
-                organizer: { _ in throw CalendarEventsClientError.unimplemented }
-            )
-        } operation: {
-            let store = Store(initialState: Browse.State()) {
-                Browse()
-            }
-
-            // Launching the generic app asks for the OME catalog first.
-            await store.send(.task)?.value
-            expectNoDifference(store.catalog, .openMusicEvent)
-            expectNoDifference(store.visibleEvents.map(\.name), ["Summer Festival"])
-
-            // The catalog control swaps the provider without changing the browse feature.
-            await store.send(.catalogSelected(.communityCalendar))?.value
-            expectNoDifference(store.catalog, .communityCalendar)
-            expectNoDifference(store.visibleEvents.map(\.name), ["Community Dance"])
-
-            // Search and date selection are ordinary in-memory browse state.
-            store.send(.searchTextChanged("missing"))
-            #expect(store.visibleEvents.isEmpty)
-            store.send(.searchTextChanged("dance"))
-            expectNoDifference(store.visibleEvents.map(\.name), ["Community Dance"])
-            store.send(.daySelected(calendarEvent.localStartDay))
-            expectNoDifference(store.selectedDay, calendarEvent.localStartDay)
-        }
     }
 
     @Test @MainActor
@@ -777,11 +652,7 @@ struct EventBrowseStoryTests {
         let savedAt = Date(timeIntervalSince1970: 300)
 
         try await withDependencies {
-            $0.calendarEvents = CalendarEventsClient(
-                browse: { _ in throw CalendarEventsClientError.unimplemented },
-                event: { _ in calendarEvent },
-                organizer: { _ in throw CalendarEventsClientError.unimplemented }
-            )
+            $0.eventBrowse.event = { _ in calendarEvent }
             $0.date = .constant(savedAt)
             $0.defaultDatabase = database
             $0.getSelectedOAuthSessionID = { Atmosphere.Account.ID(attendeeDID) }
@@ -834,14 +705,10 @@ struct EventBrowseStoryTests {
         let hydratedEvent = hydrated
 
         await withDependencies {
-            $0.calendarEvents = CalendarEventsClient(
-                browse: { _ in throw CalendarEventsClientError.unimplemented },
-                event: { eventURI in
-                    #expect(eventURI == summary.uri)
-                    return hydratedEvent
-                },
-                organizer: { _ in throw CalendarEventsClientError.unimplemented }
-            )
+            $0.eventBrowse.event = { eventURI in
+                #expect(eventURI == summary.uri)
+                return hydratedEvent
+            }
             $0.defaultDatabase = database
             $0.getSelectedOAuthSessionID = { nil }
         } operation: {
