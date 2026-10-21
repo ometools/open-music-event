@@ -471,7 +471,7 @@ struct OpenMusicEventApplicationRuntime {
         OpenMusicEventAppRootView(
             store: applicationContentStore,
             serviceEnvironment: activeServiceEnvironment,
-            isServiceEnvironmentSelectionEnabled: appDelegate != nil,
+            isServiceEnvironmentSelectionEnabled: appDelegate?.allowsServiceEnvironmentSelection == true,
             isServiceEnvironmentSwitching: isServiceEnvironmentSwitching,
             serviceEnvironmentSelected: serviceEnvironmentSelected
         )
@@ -514,7 +514,7 @@ struct OpenMusicEventApplicationRuntime {
             OpenMusicEventAppRootView(
                 store: rootStore,
                 serviceEnvironment: activeServiceEnvironment,
-                isServiceEnvironmentSelectionEnabled: appDelegate != nil,
+                isServiceEnvironmentSelectionEnabled: appDelegate?.allowsServiceEnvironmentSelection == true,
                 isServiceEnvironmentSwitching: isServiceEnvironmentSwitching,
                 serviceEnvironmentSelected: serviceEnvironmentSelected
             )
@@ -695,6 +695,11 @@ struct OpenMusicEventApplicationRuntime {
     var runtime: OpenMusicEventApplicationRuntime
     let variant: OpenMusicEventAppVariant
     public private(set) var serviceEnvironment: OpenMusicEventServiceEnvironment
+    let fixedServiceEnvironment: OpenMusicEventServiceEnvironment?
+
+    public var allowsServiceEnvironmentSelection: Bool {
+        fixedServiceEnvironment == nil
+    }
 
     public var store: StoreOf<OpenMusicEventApp> {
         runtime.store
@@ -709,8 +714,11 @@ struct OpenMusicEventApplicationRuntime {
 
     public init(
         variant: OpenMusicEventAppVariant,
-        environment: OpenMusicEventServiceEnvironment = .production
+        environment: OpenMusicEventServiceEnvironment = .production,
+        fixedServiceEnvironment: OpenMusicEventServiceEnvironment? = OpenMusicEventServiceEnvironment.bundled
     ) {
+        let environment = fixedServiceEnvironment ?? environment
+        self.fixedServiceEnvironment = fixedServiceEnvironment
         @Dependency(\.openMusicEventUIAutomation) var uiAutomation
         self.variant = variant
         self.serviceEnvironment = environment
@@ -748,8 +756,10 @@ struct OpenMusicEventApplicationRuntime {
     init(
         variant: OpenMusicEventAppVariant,
         environment: OpenMusicEventServiceEnvironment,
-        runtime: OpenMusicEventApplicationRuntime
+        runtime: OpenMusicEventApplicationRuntime,
+        fixedServiceEnvironment: OpenMusicEventServiceEnvironment? = nil
     ) {
+        self.fixedServiceEnvironment = fixedServiceEnvironment
         self.variant = variant
         self.serviceEnvironment = environment
         self.runtime = runtime
@@ -759,6 +769,9 @@ struct OpenMusicEventApplicationRuntime {
         to environment: OpenMusicEventServiceEnvironment
     ) async throws -> StoreOf<OpenMusicEventApp> {
         guard environment != serviceEnvironment else { return store }
+        guard allowsServiceEnvironmentSelection else {
+            throw ValidationError("This app is configured for \(serviceEnvironment.rawValue).")
+        }
 
         let replacementRuntime = try OpenMusicEventApplicationRootView.makeRuntime(
             variant: variant,

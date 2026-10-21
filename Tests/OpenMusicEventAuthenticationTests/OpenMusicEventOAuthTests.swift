@@ -425,6 +425,7 @@ struct OpenMusicEventOAuthTests {
         #expect(request.signUpServerConfiguration == configuration)
     }
 
+    @available(iOS 18, *)
     @Test
     func preparedDependenciesPreserveSharedAuthorizationBroker() async throws {
         let recordedRequirements = Mutex([OAuth.AuthRequirement]())
@@ -677,9 +678,7 @@ private func siteMetadataData(filePath: String = #filePath) throws -> Data {
         .deletingLastPathComponent()
     return try Data(
         contentsOf: packageRoot
-            .appendingPathComponent("Deployments", isDirectory: true)
-            .appendingPathComponent("ome-under-construction", isDirectory: true)
-            .appendingPathComponent("public", isDirectory: true)
+            .appendingPathComponent("Sources/OpenMusicEventAppViewServer/Resources/Site", isDirectory: true)
             .appendingPathComponent(".well-known", isDirectory: true)
             .appendingPathComponent("oauth-client-metadata.json", isDirectory: false)
     )

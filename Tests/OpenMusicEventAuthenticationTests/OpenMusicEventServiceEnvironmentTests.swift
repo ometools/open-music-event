@@ -47,6 +47,27 @@ struct OpenMusicEventServiceEnvironmentTests {
         )
     }
 
+    @Test(arguments: [OpenMusicEventServiceEnvironment.production, .staging])
+    func `a fixed build environment overrides the saved selection`(
+        environment: OpenMusicEventServiceEnvironment
+    ) throws {
+        let suiteName = "OpenMusicEventServiceEnvironmentTests.fixedBuild"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { userDefaults.removePersistentDomain(forName: suiteName) }
+        userDefaults.set(
+            environment == .staging ? "production" : "staging",
+            forKey: OpenMusicEventServiceEnvironment.userDefaultsKey
+        )
+
+        expectNoDifference(
+            OpenMusicEventServiceEnvironment.persisted(
+                userDefaults: userDefaults,
+                fixedEnvironment: environment
+            ),
+            environment
+        )
+    }
+
     @Test
     func `production and staging keep separate installation credentials`() async throws {
         var dependencies = DependencyValues()

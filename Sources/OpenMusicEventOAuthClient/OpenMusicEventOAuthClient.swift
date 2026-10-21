@@ -3,7 +3,17 @@ import Foundation
 /// The public native client identity shared by the apps and their metadata server.
 public enum OpenMusicEventOAuthClient: String, Sendable, Equatable {
     case production
+    case staging
     case privateAuthentication = "private-authentication"
+
+    public static var bundled: Self {
+        guard let value = Bundle.main.object(forInfoDictionaryKey: "OMEOAuthClient") as? String,
+              !value.isEmpty else { return .production }
+        guard let client = Self(rawValue: value) else {
+            preconditionFailure("Invalid OMEOAuthClient: \(value)")
+        }
+        return client
+    }
 
     public static let eventPublicationPermissions = [
         "repo:events.openmusic.event?action=create",
@@ -19,6 +29,7 @@ public enum OpenMusicEventOAuthClient: String, Sendable, Equatable {
     public var metadataURL: URL {
         switch self {
         case .production: URL(string: "https://openmusicevent.app/.well-known/oauth-client-metadata.json")!
+        case .staging: URL(string: "https://stg.openmusicevent.app/.well-known/oauth-client-metadata.json")!
         case .privateAuthentication: URL(string: "https://metadata.ome-auth.test/oauth-client-metadata.json")!
         }
     }
@@ -26,6 +37,7 @@ public enum OpenMusicEventOAuthClient: String, Sendable, Equatable {
     public var homepageURL: URL {
         switch self {
         case .production: URL(string: "https://openmusicevent.app")!
+        case .staging: URL(string: "https://stg.openmusicevent.app")!
         case .privateAuthentication: URL(string: "https://metadata.ome-auth.test/")!
         }
     }
@@ -33,6 +45,7 @@ public enum OpenMusicEventOAuthClient: String, Sendable, Equatable {
     public var redirectURL: URL {
         switch self {
         case .production: URL(string: "app.openmusicevent:/oauth/callback")!
+        case .staging: URL(string: "app.openmusicevent.staging:/oauth/callback")!
         case .privateAuthentication: URL(string: "test.ome-auth.metadata:/oauth/callback")!
         }
     }
@@ -42,6 +55,7 @@ public enum OpenMusicEventOAuthClient: String, Sendable, Equatable {
         guard var metadata = try JSONSerialization.jsonObject(with: manifest) as? [String: Any] else {
             throw CocoaError(.propertyListReadCorrupt)
         }
+        if self == .staging { metadata["client_name"] = "OME Staging" }
         metadata["client_id"] = metadataURL.absoluteString
         metadata["client_uri"] = homepageURL.absoluteString
         metadata["redirect_uris"] = [redirectURL.absoluteString]

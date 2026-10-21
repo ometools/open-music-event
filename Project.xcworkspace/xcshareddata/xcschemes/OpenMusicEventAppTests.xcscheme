@@ -49,6 +49,18 @@
                ReferencedContainer = "container:">
             </BuildableReference>
          </TestableReference>
+         <TestableReference skipped = "NO">
+            <BuildableReference BuildableIdentifier = "primary"
+               BlueprintIdentifier = "OpenMusicEventAuthenticationTests" BuildableName = "OpenMusicEventAuthenticationTests"
+               BlueprintName = "OpenMusicEventAuthenticationTests" ReferencedContainer = "container:">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference skipped = "NO">
+            <BuildableReference BuildableIdentifier = "primary"
+               BlueprintIdentifier = "OpenMusicEventOAuthClientTests" BuildableName = "OpenMusicEventOAuthClientTests"
+               BlueprintName = "OpenMusicEventOAuthClientTests" ReferencedContainer = "container:">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction
