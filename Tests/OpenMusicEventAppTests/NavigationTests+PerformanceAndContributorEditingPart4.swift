@@ -62,10 +62,9 @@ extension NavigationTests {
             .equals(submittedValue),
             timeout: .seconds(1)
         )
-        let dismissal = await store.receive(\.saveSucceeded, timeout: .seconds(1))
-        await dismissal?.value
         await save?.value
         await submission?.value
+        #expect(store.isPresented == false)
 
         let contributor = try await database.read { db in
             try #require(

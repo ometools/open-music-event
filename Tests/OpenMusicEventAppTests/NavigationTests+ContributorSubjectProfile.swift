@@ -206,8 +206,6 @@ extension NavigationTests {
             .equals(submittedValue),
             timeout: .seconds(1)
         )
-        let dismissal = await store.receive(\.saveSucceeded, timeout: .seconds(1))
-        await dismissal?.value
         await save?.value
         await submission?.value
 
@@ -256,10 +254,9 @@ extension NavigationTests {
         let createdSubmission = await createStore.receive(
             \.formSubmitted, .equals(createValue), timeout: .seconds(1)
         )
-        let createdDismissal = await createStore.receive(\.saveSucceeded, timeout: .seconds(1))
-        await createdDismissal?.value
         await createdSubmission?.value
         await createTask?.value
+        #expect(createStore.isPresented == false)
 
         var contributor = try await database.read { db in
             try #require(try Contributor.where { $0.event.eq(eventID) }.fetchOne(db))
@@ -284,10 +281,9 @@ extension NavigationTests {
         let editedSubmission = await editStore.receive(
             \.formSubmitted, .equals(editValue), timeout: .seconds(1)
         )
-        let editedDismissal = await editStore.receive(\.saveSucceeded, timeout: .seconds(1))
-        await editedDismissal?.value
         await editedSubmission?.value
         await editTask?.value
+        #expect(editStore.isPresented == false)
 
         contributor = try await database.read { db in
             try #require(try Contributor.find(contributorID).fetchOne(db))
@@ -310,10 +306,9 @@ extension NavigationTests {
         let removedSubmission = await removeStore.receive(
             \.formSubmitted, .equals(removeValue), timeout: .seconds(1)
         )
-        let removedDismissal = await removeStore.receive(\.saveSucceeded, timeout: .seconds(1))
-        await removedDismissal?.value
         await removedSubmission?.value
         await saveTask?.value
+        #expect(removeStore.isPresented == false)
 
         contributor = try await database.read { db in
             try #require(try Contributor.find(contributorID).fetchOne(db))

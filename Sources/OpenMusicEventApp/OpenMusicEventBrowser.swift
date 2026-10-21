@@ -1177,7 +1177,8 @@ public struct EventBrowseDetail {
                                     try Task.checkCancellation()
                                     try await database.write { db in
                                         // A form save or source import during the request owns its local changes.
-                                        guard try CanonicalSourceEventIdentity.find(eventURI).fetchOne(db) == nil,
+                                        guard latest.cid == nil || latest.cid != cached.cid,
+                                              try CanonicalSourceEventIdentity.find(eventURI).fetchOne(db) == nil,
                                               try LocallyCreatedEvent.find(eventURI).fetchOne(db) == nil,
                                               try Event.find(eventURI).fetchOne(db) == cached else { return }
                                         try Event.upsert { latest }.execute(db)

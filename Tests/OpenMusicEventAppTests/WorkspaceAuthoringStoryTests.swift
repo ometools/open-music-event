@@ -381,12 +381,11 @@ struct WorkspaceAuthoringStoryTests {
             #expect(viewer.canonicalWorkspace == nil)
             #expect(!viewer.showsAuthoringControls)
 
-            try await expectReportedIssue(containing: "ownerAccountRequired") {
-                await opened.send(
-                    to: \.content.destination!.eventViewer!.eventSettings!,
-                    .enterAuthoringButtonTapped
-                )?.value
-            }
+            #expect(opened.content.destination?.eventViewer?.eventSettings?.canEnterWorkspace == false)
+            await opened.send(
+                to: \.content.destination!.eventViewer!.eventSettings!,
+                .enterAuthoringButtonTapped
+            )?.value
             #expect(opened.state.content.destination?.eventViewer?.showsAuthoringControls == false)
             #expect(opened.state.content.destination?.eventViewer?.workspaceSession == nil)
             #expect(opened.state.content.destination?.eventViewer?.canonicalWorkspace == nil)
@@ -461,12 +460,11 @@ struct WorkspaceAuthoringStoryTests {
                 #expect(store.state.content.destination?.eventViewer?.canonicalWorkspace == nil)
                 #expect(store.state.content.destination?.eventViewer?.showsAuthoringControls == false)
 
-                try await expectReportedIssue(containing: "ownerAccountRequired") {
-                    await store.send(
-                        to: \.content.destination!.eventViewer!.eventSettings!,
-                        .enterAuthoringButtonTapped
-                    )?.value
-                }
+                #expect(store.content.destination?.eventViewer?.eventSettings?.canEnterWorkspace == false)
+                await store.send(
+                    to: \.content.destination!.eventViewer!.eventSettings!,
+                    .enterAuthoringButtonTapped
+                )?.value
                 #expect(store.state.content.destination?.eventViewer?.showsAuthoringControls == false)
                 #expect(store.state.content.destination?.eventViewer?.workspaceSession == nil)
                 #expect(store.state.content.destination?.eventViewer?.canonicalWorkspace == nil)

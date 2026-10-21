@@ -27,8 +27,10 @@ import Testing
 struct CanonicalEventEditingTests {
     typealias Event = OpenMusicEventLexicon.Event
 
-    @Test(arguments: ["reader", "imported", "created"])
-    func signedOutReaderRefreshesPublishedContentWithoutOverwritingLocalEdits(origin: String) async throws {
+    @Test(arguments: ["reader", "imported", "created"], [false, true])
+    func signedOutReaderRefreshesPublishedContentWithoutOverwritingLocalEdits(
+        origin: String, advertisesCID: Bool
+    ) async throws {
         let locallyAuthored = origin != "reader"
         let database = try database()
         let original = try event()
@@ -66,7 +68,7 @@ struct CanonicalEventEditingTests {
             $0.eventRecords = client
         } operation: {
             TestStore(initialState: EventBrowseDetail.State(event: CalendarEvent(
-                uri: original.id, cid: latest.cid, name: original.name, startsAt: nil,
+                uri: original.id, cid: advertisesCID ? latest.cid : nil, name: original.name, startsAt: nil,
                 organizer: .init(id: DID("did:plc:organizer")!),
                 source: .init(collection: .init(Event.lexiconID.rawValue))
             ))) { EventBrowseDetail() }
@@ -357,6 +359,7 @@ struct CanonicalEventEditingTests {
     func creatingScheduleStoresCanonicalRecordAndUpdatesEventOrder() async throws {
         let database = try database()
         let record = try event()
+        let timeZone = try #require(record.timeZone)
         try await database.write { try Event.insert { record }.execute($0) }
         let now = try Date("2026-09-02T18:00:00Z", strategy: .iso8601)
         let day = try #require(LocalDate("2026-09-05"))
@@ -366,7 +369,7 @@ struct CanonicalEventEditingTests {
             $0.date.now = now
         } operation: {
             Store(initialState: ScheduleForm.State(
-                eventID: record.id, initialDate: day, timeZone: record.timeZone
+                eventID: record.id, initialDate: day, timeZone: timeZone
             )) { ScheduleForm() }
         }
         $store.customTitle.wrappedValue = "  Saturday Music  "
@@ -388,6 +391,7 @@ struct CanonicalEventEditingTests {
     func editingAndDeletingScheduleKeepsTheEventGraphConsistent() async throws {
         let database = try database()
         let record = try event()
+        let timeZone = try #require(record.timeZone)
         let originalDay = try #require(LocalDate("2026-09-05"))
         let revisedDay = try #require(LocalDate("2026-09-06"))
         let createdAt = ATProto.DateTime(rawValue: "2026-09-01T12:00:00Z")
@@ -419,12 +423,12 @@ struct CanonicalEventEditingTests {
         } operation: {
             Store(initialState: ScheduleForm.State(
                 schedule: schedule,
-                timeZone: record.timeZone
+                timeZone: timeZone
             )) { ScheduleForm() }
         }
         #expect(store.customTitle == "Saturday")
         $store.customTitle.wrappedValue = "  Sunday Music  "
-        $store.dateSelection.wrappedValue = revisedDay.atStartOfDay(in: record.timeZone)
+        $store.dateSelection.wrappedValue = revisedDay.atStartOfDay(in: timeZone)
         await store.send(.saveButtonTapped)?.value
 
         let saved = try await database.read { try #require(try Schedule.find(scheduleID).fetchOne($0)) }
@@ -443,7 +447,7 @@ struct CanonicalEventEditingTests {
         } operation: {
             Store(initialState: ScheduleForm.State(
                 schedule: saved,
-                timeZone: record.timeZone
+                timeZone: timeZone
             )) { ScheduleForm() }
         }
         await deleteStore.send(.deleteButtonTapped)?.value
@@ -457,6 +461,7 @@ struct CanonicalEventEditingTests {
     func deletingAnAssignedSchedulePreservesTheDayAndItsProgramItem() async throws {
         let database = try database()
         var record = try event()
+        let timeZone = try #require(record.timeZone)
         let scheduleID = try #require(Schedule.ID(
             "at://did:plc:organizer/events.openmusic.schedule/3mrdbziccpcaj"
         ))
@@ -492,7 +497,7 @@ struct CanonicalEventEditingTests {
         } operation: {
             Store(initialState: ScheduleForm.State(
                 schedule: schedule,
-                timeZone: record.timeZone
+                timeZone: timeZone
             )) { ScheduleForm() }
         }
         await store.send(.deleteButtonTapped)?.value
