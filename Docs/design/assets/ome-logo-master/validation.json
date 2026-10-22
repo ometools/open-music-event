@@ -1,0 +1,80 @@
+{
+  "method": "Analytical circular core, smoothly tapered ellipse bands, fitted monotone ray envelope, quintic curvature-matched sphere connection; no raster threshold used in final construction.",
+  "center": [
+    1000.0,
+    950.0
+  ],
+  "core_radius": 184.0,
+  "beam_half_reach": 774.5,
+  "ring_specs": [
+    {
+      "rx": 274.7173987140085,
+      "ry": 257.22685538339493,
+      "peak": 22.699626771508974,
+      "end": 9.0,
+      "angle": 0.9461534561379428,
+      "height": 213.15522870010045
+    },
+    {
+      "rx": 348.92854952646627,
+      "ry": 322.1146426353815,
+      "peak": 8.132401947406157,
+      "end": 2.5,
+      "angle": 0.6825956374876575,
+      "height": 204.44288017638337
+    },
+    {
+      "rx": 445.493676578781,
+      "ry": 394.75312981166053,
+      "peak": 4.425066515149454,
+      "end": 0.7,
+      "angle": 0.44722147595489375,
+      "height": 171.06570607504432
+    }
+  ],
+  "beam_parameters": [
+    47.326625989824,
+    252.56146991908525,
+    1.0000000000000002
+  ],
+  "bridge_cubic_approximation_tolerance": 0.002,
+  "sphere_join_angle_degrees": 0.0,
+  "beam_join_angle_degrees": 0.0,
+  "valid": true,
+  "both_axes_symmetric": true,
+  "cubic_segments": 452,
+  "new_bounds": [
+    225.5,
+    736.8435607033059,
+    1774.5,
+    1163.1564392966943
+  ],
+  "approved_date": "2026-10-21",
+  "approved_scope": "Reusable flat vector geometry",
+  "viewBox": [
+    0,
+    0,
+    2000,
+    2000
+  ],
+  "assembly_order": [
+    "o",
+    "e",
+    "cage-rear",
+    "portal",
+    "cage-front"
+  ],
+  "physical_cut_validation": "Material and size-specific validation pending.",
+  "sha256": {
+    "OME-master.svg": "e70abeb4a58caeccd15d1094efdf7c4ac5de8533ad87a063b4f79816a826dd39",
+    "README.md": "729662f4be544887fbe5ddc9fa5b0d8506174726870ea69659028fe89b303d03",
+    "layers/cage-front.svg": "560ea2fb432cc7fe20019110ee81246cf29d1826ddd7e9720d617f22de01a0cb",
+    "layers/cage-rear.svg": "86b56bfe5e293b8692b55fe29a8d5ba8a1cf2ab06ec51d24f29e8c6c301babf1",
+    "layers/cage.svg": "2a8144932720944cfb5d3555fdd1d44357c9c65f09f8e1636c86508c1dab4c2b",
+    "layers/e.svg": "b121a4b3ad5f67c27ebe32c0e95461b57976da284bc4ae4f830a77d7e23e5e0b",
+    "layers/o.svg": "98b16d5b973e0391838fe06d546d11ba9b6e853e5f1d93d7ae88163f257cba7e",
+    "layers/portal.svg": "4b1470bc4c6d4372ffddaec1f10983e80baee93cffc6b253bd9bbb31e8b467df",
+    "preview.html": "12c4e3affc6ece19497fecfa77e0dc633461787fe54eb876a772a4e9504d77a0",
+    "preview.png": "6572315f39fb3406439e361d9f19cac824fa189274b618b718c138e63e879912"
+  }
+}
