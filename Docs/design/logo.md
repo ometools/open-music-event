@@ -1,21 +1,36 @@
 # Logo
 
-This note tracks the working logo direction for Open Music Event.
+This note tracks the approved flat logo geometry and dimensional logo direction for Open Music Event.
 
-These samples are close-to-final drafts, not canonical final artwork. Do not treat the current raster images as final source assets, and do not modify the artwork locally. Product and chrome work should consume final designer-provided assets when they are delivered.
+The approved reusable flat vector master is recorded below. Earlier raster samples remain visual and lighting references. Product and chrome work should consume approved artwork rather than retracing or changing its geometry.
 
 Designer reference: [xcrunchy](https://www.xcrunchy.com/)
 
-## Current Flat Logo Snapshot
+## Approved Flat Vector Master
+
+![Approved OME vector master](assets/ome-logo-master/preview.png)
+
+Approved on 2026-10-21 after reviewing the O/E balance, cage proportions, solid portal silhouette, cage fit, and smooth connection to the circular core.
+
+- [Layered master SVG](assets/ome-logo-master/OME-master.svg)
+- [Dark preview](assets/ome-logo-master/preview.html)
+- [Registered layers and sizing notes](assets/ome-logo-master/README.md)
+- [Accepted dimensions and validation](assets/ome-logo-master/validation.json)
+
+Use this as the source for reusable flat geometry. Every component shares the same 2000 x 2000 coordinate system; keep the front cage above the portal. Preview colors distinguish layers. The spectral/light direction below remains relevant for rendered applications.
+
+Material-specific minimum features, kerf and cutter settings remain separate from the approved geometry. Existing app/site asset references and the user-authored Blender model are unchanged.
+
+## Raster Lighting Reference
 
 ![OME sphere cage mark](assets/ome-mark-sphere-cage-2026-07-13.png)
 
 - `assets/ome-mark-sphere-cage-2026-07-13.png`
-  - Current flat logo snapshot for planning.
+  - Sphere-cage raster reference for lighting and spectral appearance.
   - Size: 2000 x 2000.
   - Added from the supplied flat logo image on 2026-07-13.
-  - Use as the current visual reference for static-site, app-icon, and motion-system planning.
-  - Still need final layered source files before production asset slicing.
+  - Use as a lighting reference for static-site, app-icon, and motion-system planning; use the approved vector master for flat geometry.
+  - Approved layered flat geometry is available above; surface-specific production slicing remains separate.
 
 Visual features to preserve:
 
@@ -154,7 +169,7 @@ Automation and handoff:
 
 ## Asset Needs
 
-- Final layered source artwork.
+- Surface-specific production exports from the approved layered vector master.
 - Blender model or source geometry for the dimensional mark.
 - Standalone mark.
 - Full wordmark.
