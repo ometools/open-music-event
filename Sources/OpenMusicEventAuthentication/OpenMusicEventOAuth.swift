@@ -132,9 +132,9 @@ public enum OpenMusicEventOAuth {
         account: "oauth.selectedSessionID"
     )
 
-    public static let clientMetadataURL = OpenMusicEventOAuthClient.production.metadataURL
+    public static let clientMetadataURL = OpenMusicEventOAuthClient.bundled.metadataURL
 
-    public static let redirectURL = OpenMusicEventOAuthClient.production.redirectURL
+    public static let redirectURL = OpenMusicEventOAuthClient.bundled.redirectURL
 
     public static let tangledPullPermission =
         TangledOAuthRequirements.pullPermission

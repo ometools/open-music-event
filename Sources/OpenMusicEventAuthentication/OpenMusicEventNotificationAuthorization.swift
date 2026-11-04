@@ -16,20 +16,33 @@ public enum OpenMusicEventServiceEnvironment: String, CaseIterable, Equatable, H
 
     public static let userDefaultsKey = "openMusicEventServiceEnvironment"
 
+    public static var bundled: Self? {
+        guard let value = Bundle.main.object(forInfoDictionaryKey: "OMEServiceEnvironment") as? String,
+              !value.isEmpty else { return nil }
+        guard let environment = Self(rawValue: value) else {
+            preconditionFailure("Invalid OMEServiceEnvironment: \(value)")
+        }
+        return environment
+    }
+
     #if os(Android) || SKIP_BRIDGE
     public static func persisted() -> Self {
-        persistedValue(userDefaults: .standard)
+        persistedValue(userDefaults: .standard, fixedEnvironment: bundled)
     }
     #else
     public static func persisted(
-        userDefaults: UserDefaults = .standard
+        userDefaults: UserDefaults = .standard,
+        fixedEnvironment: Self? = bundled
     ) -> Self {
-        persistedValue(userDefaults: userDefaults)
+        persistedValue(userDefaults: userDefaults, fixedEnvironment: fixedEnvironment)
     }
     #endif
 
-    private static func persistedValue(userDefaults: UserDefaults) -> Self {
-        userDefaults.string(forKey: userDefaultsKey).flatMap(Self.init(rawValue:))
+    private static func persistedValue(
+        userDefaults: UserDefaults,
+        fixedEnvironment: Self?
+    ) -> Self {
+        fixedEnvironment ?? userDefaults.string(forKey: userDefaultsKey).flatMap(Self.init(rawValue:))
             ?? .production
     }
 

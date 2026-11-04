@@ -110,7 +110,7 @@ extension NavigationTests {
             try await database.write { db in
                 try Event
                     .find(selectedEventID)
-                    .update { $0.timeZone = losAngeles }
+                    .update { $0.timeZone = #bind(losAngeles) }
                     .execute(db)
             }
             await waitUntil {

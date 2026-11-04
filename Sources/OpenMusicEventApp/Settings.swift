@@ -162,7 +162,7 @@ public struct SettingsFeatureView: View {
 
             TechnicalDetailsSettingsSection()
 
-            if showsTechnicalDetails {
+            if showsTechnicalDetails && isServiceEnvironmentSelectionEnabled {
                 OpenMusicEventServiceEnvironmentSettingsSection(
                     serviceEnvironment: serviceEnvironment,
                     isSelectionEnabled: isServiceEnvironmentSelectionEnabled,

@@ -204,6 +204,30 @@ struct OpenMusicEventServiceEnvironmentTests {
         expectNoDifference(root.activeServiceEnvironment, .staging)
     }
 
+    @Test @MainActor
+    func `a staging build disables switching and keeps its runtime`() async throws {
+        let database = try makeServiceEnvironmentDatabase()
+        let runtime = makeServiceEnvironmentRuntime(
+            database: database,
+            environment: .staging,
+            notificationsClient: .testValue
+        )
+        let appDelegate = OpenMusicEventAppDelegate(
+            variant: .generic,
+            environment: .staging,
+            runtime: runtime,
+            fixedServiceEnvironment: .staging
+        )
+        let originalStore = appDelegate.store
+
+        #expect(!appDelegate.allowsServiceEnvironmentSelection)
+        await #expect(throws: (any Error).self) {
+            try await appDelegate.switchServiceEnvironment(to: .production)
+        }
+        expectNoDifference(appDelegate.serviceEnvironment, .staging)
+        #expect(appDelegate.store === originalStore)
+    }
+
     @Test
     func `production and staging preserve separate application databases`() {
         let applicationSupportURL = URL(

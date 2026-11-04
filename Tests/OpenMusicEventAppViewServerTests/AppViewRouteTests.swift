@@ -453,6 +453,41 @@ struct AppViewRouteTests {
     }
 
     @Test
+    func stagingServesItsNativeIdentityAndEventLinks() async throws {
+        var configuration = try AppViewConfiguration.fromEnvironment(environment: [
+            "OME_OAUTH_CLIENT": "staging",
+            "OME_APPVIEW_PUBLIC_HOST": "stg.openmusicevent.app",
+        ])
+        #expect(configuration.oauthClient == .staging)
+        configuration.databaseURL = nil
+        configuration.port = 0
+        let application = try OpenMusicEventAppViewServer.application(configuration: configuration)
+        try await application.test(.ahc()) { client in
+            try await client.execute(uri: "/.well-known/oauth-client-metadata.json", method: .get,
+                                     headers: [.init("Host")!: "stg.openmusicevent.app"]) { response in
+                #expect(response.status == .ok)
+                let metadata = try #require(JSONSerialization.jsonObject(with: Data(response.body.readableBytesView)) as? [String: Any])
+                #expect(metadata["client_id"] as? String == "https://stg.openmusicevent.app/.well-known/oauth-client-metadata.json")
+                #expect(metadata["redirect_uris"] as? [String] == ["app.openmusicevent.staging:/oauth/callback"])
+                #expect((metadata["scope"] as? String)?.contains("atproto") == true)
+            }
+            for path in ["/.well-known/apple-app-site-association", "/apple-app-site-association"] {
+                try await client.execute(uri: path, method: .get, headers: [.init("Host")!: "stg.openmusicevent.app"]) { response in
+                    #expect(response.status == .ok)
+                    #expect(response.headers[.contentType] == "application/json")
+                    let document = try #require(JSONSerialization.jsonObject(with: Data(response.body.readableBytesView)) as? [String: Any])
+                    let applinks = try #require(document["applinks"] as? [String: Any])
+                    let details = try #require(applinks["details"] as? [[String: Any]])
+                    #expect(details.count == 1)
+                    #expect(details.first?["appIDs"] as? [String] == ["YJRWV8Z7KT.app.openmusicevent.staging"])
+                    let components = try #require(details.first?["components"] as? [[String: String]])
+                    #expect(components == [["/": "/events/*"]])
+                }
+            }
+        }
+    }
+
+    @Test
     func privateAppViewServesTheSharedNativeClient() async throws {
         #expect(try AppViewConfiguration.fromEnvironment(environment: [
             "OME_OAUTH_CLIENT": "private-authentication"

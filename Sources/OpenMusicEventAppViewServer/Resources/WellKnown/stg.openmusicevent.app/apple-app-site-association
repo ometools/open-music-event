@@ -1,0 +1,16 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": [
+          "YJRWV8Z7KT.app.openmusicevent.staging"
+        ],
+        "components": [
+          {
+            "/": "/events/*"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -61,3 +61,5 @@ CODE_SIGN_ENTITLEMENTS = Entitlements.plist
 //DEVELOPMENT_TEAM =
 
 OME_OAUTH_CALLBACK_SCHEME = app.openmusicevent
+
+OME_SERVICE_ENVIRONMENT = production

@@ -177,10 +177,9 @@ extension NavigationTests {
             .equals(submittedValue),
             timeout: .seconds(1)
         )
-        let dismissal = await store.receive(\.saveSucceeded, timeout: .seconds(1))
-        await dismissal?.value
         await save?.value
         await submission?.value
+        #expect(store.isPresented == false)
 
         let saved = try await database.read { db in
             try Contributor.find(contributor.id).fetchOne(db)
@@ -256,10 +255,9 @@ extension NavigationTests {
             .equals(submittedValue),
             timeout: .seconds(1)
         )
-        let dismissal = await store.receive(\.saveSucceeded, timeout: .seconds(1))
-        await dismissal?.value
         await save?.value
         await submission?.value
+        #expect(store.isPresented == false)
 
         let saved = try await database.read { db in
             try Contributor.where { $0.event.eq(eventID) }.fetchAll(db)
@@ -366,10 +364,9 @@ extension NavigationTests {
             .equals(submittedValue),
             timeout: .seconds(1)
         )
-        let dismissal = await store.receive(\.saveSucceeded, timeout: .seconds(1))
-        await dismissal?.value
         await save?.value
         await submission?.value
+        #expect(store.isPresented == false)
 
         let saved = try await database.read { db in
             try Contributor.find(contributor.id).fetchOne(db)

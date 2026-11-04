@@ -23,3 +23,19 @@ import Testing
     #expect(identity.isCallbackURL(URL(string: "test.ome-auth.metadata:/oauth/callback?code=fixture&state=fixture")!))
     #expect(!identity.isCallbackURL(URL(string: "app.openmusicevent:/oauth/callback")!))
 }
+
+@Test func stagingIdentityPreservesPermissionsAndSeparatesCallbacks() throws {
+    let identity = OpenMusicEventOAuthClient.staging
+    let data = try identity.metadataData(from:
+        Data(#"{"scope":"atproto repo:example.record","grant_types":["authorization_code","refresh_token"]}"#.utf8))
+    let metadata = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    #expect(metadata["client_id"] as? String == "https://stg.openmusicevent.app/.well-known/oauth-client-metadata.json")
+    #expect(metadata["client_uri"] as? String == "https://stg.openmusicevent.app")
+    #expect(metadata["client_name"] as? String == "OME Staging")
+    #expect(metadata["redirect_uris"] as? [String] == ["app.openmusicevent.staging:/oauth/callback"])
+    #expect(metadata["scope"] as? String == "atproto repo:example.record")
+    let stagingCallback = URL(string: "app.openmusicevent.staging:/oauth/callback?code=fixture&state=fixture")!
+    #expect(identity.isCallbackURL(stagingCallback))
+    #expect(!OpenMusicEventOAuthClient.production.isCallbackURL(stagingCallback))
+    #expect(!identity.isCallbackURL(OpenMusicEventOAuthClient.production.redirectURL))
+}

@@ -108,10 +108,9 @@ extension NavigationTests {
             .equals(submittedValue),
             timeout: .seconds(1)
         )
-        let dismissal = await editStore.receive(\.saveSucceeded, timeout: .seconds(1))
-        await dismissal?.value
         await save?.value
         await submission?.value
+        #expect(editStore.isPresented == false)
 
         let contributor = try await database.read { db in
             try #require(
@@ -185,10 +184,9 @@ extension NavigationTests {
             .equals(submittedValue),
             timeout: .seconds(1)
         )
-        let dismissal = await editStore.receive(\.saveSucceeded, timeout: .seconds(1))
-        await dismissal?.value
         await save?.value
         await submission?.value
+        #expect(editStore.isPresented == false)
         for _ in 0..<100 {
             if await viewObservationRecorder.values == ["invalidated"] {
                 break

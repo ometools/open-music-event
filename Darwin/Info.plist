@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>OMEServiceEnvironment</key>
+	<string>$(OME_SERVICE_ENVIRONMENT)</string>
+	<key>OMEOAuthClient</key>
+	<string>$(OME_SERVICE_ENVIRONMENT)</string>
 	<key>OMEUIAutomationProfile</key>
 	<string>$(OME_UI_AUTOMATION_PROFILE)</string>
 	<key>OMEUIAutomation</key>

@@ -14,6 +14,14 @@
 		EF029DD22FE2196D00E864D4 /* OpenMusicEventApp in Frameworks */ = {isa = PBXBuildFile; productRef = 491F27812DA55B72004926EE /* OpenMusicEventApp */; };
 		EF5805393005FB1F00B50389 /* OMECagePortal.icon in Resources */ = {isa = PBXBuildFile; fileRef = EF5805383005FB1F00B50389 /* OMECagePortal.icon */; };
 		EFA714A12FFDF20200983E7E /* OME.icon in Resources */ = {isa = PBXBuildFile; fileRef = EFA7149E2FFDF20200983E7E /* OME.icon */; };
+		ECAF556308E32F1354788423 /* Main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49F90C2B2A52156200F06D93 /* Main.swift */; };
+		2DD390E5CCB52DD0C1D3FF9F /* OpenMusicEventApp in Frameworks */ = {isa = PBXBuildFile; productRef = 491F27812DA55B72004926EE /* OpenMusicEventApp */; };
+		21DF06C0AA0BB16C3F6C40BD /* OMECagePortal.icon in Resources */ = {isa = PBXBuildFile; fileRef = EF5805383005FB1F00B50389 /* OMECagePortal.icon */; };
+		CC710C55A578DCC3DAADABD3 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 49F90C2F2A52156300F06D93 /* Assets.xcassets */; };
+		20FA610BFA581A1111EB2205 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 496BDBED2B8A7E9C00C09264 /* Localizable.xcstrings */; };
+		5F381BC9A38CF0656A9BDFFC /* OME.icon in Resources */ = {isa = PBXBuildFile; fileRef = EFA7149E2FFDF20200983E7E /* OME.icon */; };
+		594A0F752C357BBC3CE90402 /* OpenMusicEventApp in Embed Frameworks */ = {isa = PBXBuildFile; productRef = 491F27812DA55B72004926EE /* OpenMusicEventApp */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		3DDC6BBA8A39FA9587C6B9D2 /* OMEStaging.icon in Resources */ = {isa = PBXBuildFile; fileRef = F365480C1BED079BA96F31D8 /* OMEStaging.icon */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -24,6 +32,17 @@
 			dstSubfolderSpec = 10;
 			files = (
 				491F27832DA55B72004926EE /* OpenMusicEventApp in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BF6243A02D4DCAB1E1537634 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				594A0F752C357BBC3CE90402 /* OpenMusicEventApp in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -45,6 +64,10 @@
 		EF5805383005FB1F00B50389 /* OMECagePortal.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = OMECagePortal.icon; sourceTree = "<group>"; };
 		EF64246130293FB000EA9399 /* OpenMusicEvent AppDebug.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "OpenMusicEvent AppDebug.entitlements"; sourceTree = "<group>"; };
 		EFA7149E2FFDF20200983E7E /* OME.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = OME.icon; sourceTree = "<group>"; };
+		3B22FFC3EAA544D73ADF8090 /* OpenMusicEventStaging.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OpenMusicEventStaging.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A450F0616E643661FC3E6DF2 /* OpenMusicEventStaging.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = OpenMusicEventStaging.xcconfig; sourceTree = "<group>"; };
+		ADB3DED7533F7878AF2A7EB2 /* Staging.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Staging.entitlements; sourceTree = "<group>"; };
+		F365480C1BED079BA96F31D8 /* OMEStaging.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = OMEStaging.icon; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -56,12 +79,21 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B4DCB4DCA76E4A9A7F6BD44C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2DD390E5CCB52DD0C1D3FF9F /* OpenMusicEventApp in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		496BDBEC2B89A47800C09264 /* Products */ = {
 			isa = PBXGroup;
 			children = (
+				3B22FFC3EAA544D73ADF8090 /* OpenMusicEventStaging.app */,
 				496BDBEB2B89A47800C09264 /* OpenMusicEventApp.app */,
 			);
 			name = Products;
@@ -78,6 +110,9 @@
 		49F90C1F2A52156200F06D93 = {
 			isa = PBXGroup;
 			children = (
+				A450F0616E643661FC3E6DF2 /* OpenMusicEventStaging.xcconfig */,
+				ADB3DED7533F7878AF2A7EB2 /* Staging.entitlements */,
+				F365480C1BED079BA96F31D8 /* OMEStaging.icon */,
 				EF64246130293FB000EA9399 /* OpenMusicEvent AppDebug.entitlements */,
 				496EB72F2A6AE4DE00C1253C /* README.md */,
 				496EB72F2A6AE4DE00C1253A /* Skip.env */,
@@ -136,6 +171,27 @@
 			productReference = 496BDBEB2B89A47800C09264 /* OpenMusicEventApp.app */;
 			productType = "com.apple.product-type.application";
 		};
+		D49711D0AE9BBF20D86D138C /* OME Staging */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 87E2696982F88677DCBBB842 /* Build configuration list for PBXNativeTarget "OME Staging" */;
+			buildPhases = (
+				9EE0411CA18BDC83CABA87B9 /* Sources */,
+				B4DCB4DCA76E4A9A7F6BD44C /* Frameworks */,
+				C7CDA451FB54FC195668A0A9 /* Resources */,
+				BF6243A02D4DCAB1E1537634 /* Embed Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "OME Staging";
+			packageProductDependencies = (
+				491F27812DA55B72004926EE /* OpenMusicEventApp */,
+			);
+			productName = App;
+			productReference = 3B22FFC3EAA544D73ADF8090 /* OpenMusicEventStaging.app */;
+			productType = "com.apple.product-type.application";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -164,6 +220,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
+				D49711D0AE9BBF20D86D138C /* OME Staging */,
 				499CD4382AC5B799001AE8D8 /* OpenMusicEvent App */,
 			);
 		};
@@ -178,6 +235,18 @@
 				499CD4402AC5B799001AE8D8 /* Assets.xcassets in Resources */,
 				496BDBEE2B8A7E9C00C09264 /* Localizable.xcstrings in Resources */,
 				EFA714A12FFDF20200983E7E /* OME.icon in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C7CDA451FB54FC195668A0A9 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3DDC6BBA8A39FA9587C6B9D2 /* OMEStaging.icon in Resources */,
+				21DF06C0AA0BB16C3F6C40BD /* OMECagePortal.icon in Resources */,
+				CC710C55A578DCC3DAADABD3 /* Assets.xcassets in Resources */,
+				20FA610BFA581A1111EB2205 /* Localizable.xcstrings in Resources */,
+				5F381BC9A38CF0656A9BDFFC /* OME.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -211,6 +280,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				499CD43B2AC5B799001AE8D8 /* Main.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9EE0411CA18BDC83CABA87B9 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				ECAF556308E32F1354788423 /* Main.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -298,6 +375,42 @@
 			};
 			name = Release;
 		};
+		387EE4C10A359C1A6E646706 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = A450F0616E643661FC3E6DF2 /* OpenMusicEventStaging.xcconfig */;
+			buildSettings = {
+				DEVELOPMENT_TEAM = YJRWV8Z7KT;
+				ENABLE_PREVIEWS = YES;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
+				INFOPLIST_KEY_UIStatusBarHidden = NO;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+			};
+			name = Debug;
+		};
+		D6BC363AB042972533A00778 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = A450F0616E643661FC3E6DF2 /* OpenMusicEventStaging.xcconfig */;
+			buildSettings = {
+				DEVELOPMENT_TEAM = YJRWV8Z7KT;
+				ENABLE_PREVIEWS = YES;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
+				INFOPLIST_KEY_UIStatusBarHidden = NO;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -315,6 +428,15 @@
 			buildConfigurations = (
 				49F90C4B2A52156300F06D93 /* Debug */,
 				49F90C4C2A52156300F06D93 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		87E2696982F88677DCBBB842 /* Build configuration list for PBXNativeTarget "OME Staging" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				387EE4C10A359C1A6E646706 /* Debug */,
+				D6BC363AB042972533A00778 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

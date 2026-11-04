@@ -1,0 +1,15 @@
+#include "OpenMusicEvent.xcconfig"
+
+PRODUCT_NAME = OpenMusicEventStaging
+PRODUCT_MODULE_NAME = OpenMusicEventStagingHostApp
+PRODUCT_BUNDLE_IDENTIFIER = app.openmusicevent.staging
+INFOPLIST_KEY_CFBundleDisplayName = OME Staging
+OME_SERVICE_ENVIRONMENT = staging
+OME_OAUTH_CALLBACK_SCHEME = app.openmusicevent.staging
+ASSETCATALOG_COMPILER_APPICON_NAME = OMEStaging
+ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO
+CODE_SIGN_ENTITLEMENTS = Staging.entitlements
+OME_APNS_ENVIRONMENT[config=Debug] = development
+OME_APNS_ENVIRONMENT[config=Release] = production
+SUPPORTED_PLATFORMS = iphoneos iphonesimulator
+SDKROOT = iphoneos

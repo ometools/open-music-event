@@ -1,0 +1,113 @@
+{
+  "fill": {
+    "linear-gradient": [
+      "srgb:0.64,0.29,0.02,1",
+      "srgb:0.20,0.08,0.01,1"
+    ]
+  },
+  "groups": [
+    {
+      "blur-material": null,
+      "layers": [
+        {
+          "image-name": "Staging.svg",
+          "name": "Staging badge",
+          "glass": false,
+          "position": {
+            "scale": 1,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "hidden": false,
+          "image-name": "Layer 2.png",
+          "name": "Layer 2",
+          "opacity": 0.74,
+          "position": {
+            "scale": 0.79,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "glass": false,
+          "image-name": "Flash.png",
+          "name": "Flash",
+          "opacity": 1,
+          "position": {
+            "scale": 0.8,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "blend-mode": "hard-light",
+          "glass": true,
+          "hidden": false,
+          "image-name": "Flash Separated.png",
+          "name": "Flash Separated",
+          "opacity": 1,
+          "position": {
+            "scale": 0.79,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "hidden": true,
+          "image-name": "Layer.png",
+          "name": "Layer",
+          "position": {
+            "scale": 4.54,
+            "translation-in-points": [
+              -26.453125,
+              0
+            ]
+          }
+        },
+        {
+          "hidden": false,
+          "image-name": "Layer copy.png",
+          "name": "Layer copy",
+          "position": {
+            "scale": 0.79,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "lighting-specializations": [
+        {
+          "appearance": "dark",
+          "value": "individual"
+        }
+      ],
+      "name": "Group",
+      "shadow": {
+        "kind": "layer-color",
+        "opacity": 1
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.6
+      }
+    }
+  ],
+  "supported-platforms": {
+    "circles": [
+      "watchOS"
+    ],
+    "squares": "shared"
+  }
+}

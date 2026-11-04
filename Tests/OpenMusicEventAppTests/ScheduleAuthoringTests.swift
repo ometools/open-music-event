@@ -297,7 +297,7 @@ struct ScheduleAuthoringTests {
     func eventViewerAddPerformanceIntentSeedsSelectedScheduleAndStage() async throws {
         let database = try canonicalPerformanceDatabase()
         let fixture = try seedCanonicalPerformanceFixture(database: database)
-        let timeZone = fixture.event.timeZone
+        let timeZone = try #require(fixture.event.timeZone)
         let selectedContext = try seedAdditionalCanonicalScheduleContext(
             database: database, fixture: fixture
         )
@@ -344,7 +344,7 @@ struct ScheduleAuthoringTests {
     func eventViewerAddPerformanceIntentIgnoresLaterSetsOnOtherStages() async throws {
         let database = try canonicalPerformanceDatabase()
         let fixture = try seedCanonicalPerformanceFixture(database: database)
-        let timeZone = fixture.event.timeZone
+        let timeZone = try #require(fixture.event.timeZone)
         let selectedContext = try seedAdditionalCanonicalScheduleContext(
             database: database, fixture: fixture
         )
@@ -396,7 +396,7 @@ struct ScheduleAuthoringTests {
     func eventViewerAddPerformanceIntentKeepsNoonDefaultWithoutPriorStageSet() async throws {
         let database = try canonicalPerformanceDatabase()
         let fixture = try seedCanonicalPerformanceFixture(database: database)
-        let timeZone = fixture.event.timeZone
+        let timeZone = try #require(fixture.event.timeZone)
         let selectedContext = try seedAdditionalCanonicalScheduleContext(
             database: database, fixture: fixture
         )
@@ -509,7 +509,7 @@ struct ScheduleAuthoringTests {
     func createsPerformanceRowWithLinkedContributor() async throws {
         let database = try canonicalPerformanceDatabase()
         let fixture = try seedCanonicalPerformanceFixture(database: database)
-        let timeZone = fixture.event.timeZone
+        let timeZone = try #require(fixture.event.timeZone)
         let scheduleDate = fixture.schedule.date
         let startTime = try #require(scheduleDate.at(hour: 20, in: timeZone))
         let endTime = try #require(scheduleDate.at(hour: 21, minute: 30, in: timeZone))
@@ -663,7 +663,8 @@ struct ScheduleAuthoringTests {
     func preservesAScheduleDayWithoutRequiringAnEndTime() async throws {
         let database = try canonicalPerformanceDatabase()
         let fixture = try seedCanonicalPerformanceFixture(database: database)
-        let start = try #require(fixture.schedule.date.at(hour: 20, in: fixture.event.timeZone))
+        let timeZone = try #require(fixture.event.timeZone)
+        let start = try #require(fixture.schedule.date.at(hour: 20, in: timeZone))
         let store = try makeCanonicalPerformanceStore(database: database, fixture: fixture) {
             $0.title = "Doors"
             $0.startTimeSelection = start
@@ -946,7 +947,7 @@ struct ScheduleAuthoringTests {
     func createsPerformanceRowsWithMultipleContributors() async throws {
         let database = try canonicalPerformanceDatabase()
         let fixture = try seedCanonicalPerformanceFixture(database: database)
-        let timeZone = fixture.event.timeZone
+        let timeZone = try #require(fixture.event.timeZone)
         let scheduleDate = fixture.schedule.date
         let store = try makeCanonicalPerformanceStore(
             database: database,
@@ -992,7 +993,7 @@ struct ScheduleAuthoringTests {
     func createsPerformanceRowWithNewManualContributor() async throws {
         let database = try canonicalPerformanceDatabase()
         let fixture = try seedCanonicalPerformanceFixture(database: database)
-        let timeZone = fixture.event.timeZone
+        let timeZone = try #require(fixture.event.timeZone)
         let scheduleDate = fixture.schedule.date
         let store = try makeCanonicalPerformanceStore(
             database: database,
@@ -1031,7 +1032,7 @@ struct ScheduleAuthoringTests {
     func rejectsInvalidPerformanceTimeRange() async throws {
         let database = try canonicalPerformanceDatabase()
         let fixture = try seedCanonicalPerformanceFixture(database: database)
-        let timeZone = fixture.event.timeZone
+        let timeZone = try #require(fixture.event.timeZone)
         let startTime = try #require(fixture.schedule.date.at(hour: 20, in: timeZone))
         let store = try makeCanonicalPerformanceStore(
             database: database,
@@ -1056,7 +1057,7 @@ struct ScheduleAuthoringTests {
     func createsOvernightPerformanceRow() async throws {
         let database = try canonicalPerformanceDatabase()
         let fixture = try seedCanonicalPerformanceFixture(database: database)
-        let timeZone = fixture.event.timeZone
+        let timeZone = try #require(fixture.event.timeZone)
         let scheduleDate = fixture.schedule.date
         let startTime = try #require(scheduleDate.at(hour: 23, minute: 30, in: timeZone))
         let endClockTime = try #require(scheduleDate.at(hour: 1, minute: 15, in: timeZone))
@@ -1092,7 +1093,7 @@ struct ScheduleAuthoringTests {
     func createsPerformanceRowWithAnonymousName() async throws {
         let database = try canonicalPerformanceDatabase()
         let fixture = try seedCanonicalPerformanceFixture(database: database)
-        let timeZone = fixture.event.timeZone
+        let timeZone = try #require(fixture.event.timeZone)
         let scheduleDate = fixture.schedule.date
         let store = try makeCanonicalPerformanceStore(
             database: database,
@@ -1129,7 +1130,7 @@ struct ScheduleAuthoringTests {
     func createsPerformanceRowWithIdentityRelationship() async throws {
         let database = try canonicalPerformanceDatabase()
         let fixture = try seedCanonicalPerformanceFixture(database: database)
-        let timeZone = fixture.event.timeZone
+        let timeZone = try #require(fixture.event.timeZone)
         let artistDID = try #require(DID("did:plc:artist123"))
         let scheduleDate = fixture.schedule.date
         let store = try makeCanonicalPerformanceStore(
@@ -1175,7 +1176,7 @@ struct ScheduleAuthoringTests {
     func createsPerformanceRowWithContributorFromIdentity() async throws {
         let database = try canonicalPerformanceDatabase()
         let fixture = try seedCanonicalPerformanceFixture(database: database)
-        let timeZone = fixture.event.timeZone
+        let timeZone = try #require(fixture.event.timeZone)
         let identity = ActorIdentity(
             did: try #require(DID("did:plc:identityartist")),
             handle: Atmosphere.Account.Handle(rawValue: "identityartist.bsky.social"),
@@ -1224,7 +1225,7 @@ struct ScheduleAuthoringTests {
     func reusesContributorWithMatchingIdentityDid() async throws {
         let database = try canonicalPerformanceDatabase()
         let fixture = try seedCanonicalPerformanceFixture(database: database)
-        let timeZone = fixture.event.timeZone
+        let timeZone = try #require(fixture.event.timeZone)
         let did = try #require(DID("did:plc:knownartist"))
         let knownContributorID = try #require(Contributor.ID(
             "at://did:plc:organizer/events.openmusic.contributor/3mrdbziccpca6"
@@ -1279,7 +1280,7 @@ struct ScheduleAuthoringTests {
     func editsPerformanceRowWithoutDroppingContributors() async throws {
         let database = try canonicalPerformanceDatabase()
         let fixture = try seedCanonicalPerformanceFixture(database: database)
-        let timeZone = fixture.event.timeZone
+        let timeZone = try #require(fixture.event.timeZone)
         let performanceID = try #require(ProgramItem.ID(
             "at://did:plc:organizer/events.openmusic.programItem/3mrdbziccpcae"
         ))
@@ -1339,7 +1340,7 @@ struct ScheduleAuthoringTests {
     func movesCrossMidnightPerformanceToAnotherScheduleWithoutDroppingFormContent() async throws {
         let database = try canonicalPerformanceDatabase()
         let fixture = try seedCanonicalPerformanceFixture(database: database)
-        let timeZone = fixture.event.timeZone
+        let timeZone = try #require(fixture.event.timeZone)
         let targetContext = try seedAdditionalCanonicalScheduleContext(
             database: database, fixture: fixture
         )
@@ -1503,7 +1504,7 @@ struct ScheduleAuthoringTests {
     func loadsCommonAndCustomRelationshipRoles() async throws {
         let database = try canonicalPerformanceDatabase()
         let fixture = try seedCanonicalPerformanceFixture(database: database)
-        let timeZone = fixture.event.timeZone
+        let timeZone = try #require(fixture.event.timeZone)
         let performanceID = try #require(ProgramItem.ID(
             "at://did:plc:organizer/events.openmusic.programItem/3mrdbziccpcae"
         ))
@@ -1659,7 +1660,7 @@ struct ScheduleAuthoringTests {
     func performanceContributorSearchSelectionAddsRowWithNilRole() async throws {
         let database = try canonicalPerformanceDatabase()
         let fixture = try seedCanonicalPerformanceFixture(database: database)
-        let timeZone = fixture.event.timeZone
+        let timeZone = try #require(fixture.event.timeZone)
         let contributors = try await database.read { db in
             try ContributorProfile
                 .all(eventID: fixture.event.id, hydration: .none)
@@ -1706,7 +1707,7 @@ struct ScheduleAuthoringTests {
     func performanceTitleTracksPrimaryContributorNamesUntilEdited() async throws {
         let database = try canonicalPerformanceDatabase()
         let fixture = try seedCanonicalPerformanceFixture(database: database)
-        let timeZone = fixture.event.timeZone
+        let timeZone = try #require(fixture.event.timeZone)
         let contributors = try await database.read { db in
             try ContributorProfile
                 .all(eventID: fixture.event.id, hydration: .none)
@@ -1786,7 +1787,7 @@ struct ScheduleAuthoringTests {
     func eventViewerPerformanceEditIntentPresentsEditor() async throws {
         let database = try canonicalPerformanceDatabase()
         let fixture = try seedCanonicalPerformanceFixture(database: database)
-        let timeZone = fixture.event.timeZone
+        let timeZone = try #require(fixture.event.timeZone)
         let performanceID = try #require(ProgramItem.ID(
             "at://did:plc:organizer/events.openmusic.programItem/3mrdbziccpcae"
         ))
@@ -1835,7 +1836,7 @@ struct ScheduleAuthoringTests {
     func performanceDetailEditActionEmitsEditorRequest() async throws {
         let database = try canonicalPerformanceDatabase()
         let fixture = try seedCanonicalPerformanceFixture(database: database)
-        let timeZone = fixture.event.timeZone
+        let timeZone = try #require(fixture.event.timeZone)
         let performanceID = try #require(ProgramItem.ID(
             "at://did:plc:organizer/events.openmusic.programItem/3mrdbziccpcae"
         ))
@@ -1879,7 +1880,7 @@ struct ScheduleAuthoringTests {
     func performanceDetailDeleteActionRequestsScheduleConfirmation() async throws {
         let database = try canonicalPerformanceDatabase()
         let fixture = try seedCanonicalPerformanceFixture(database: database)
-        let timeZone = fixture.event.timeZone
+        let timeZone = try #require(fixture.event.timeZone)
         let performanceID = try #require(ProgramItem.ID(
             "at://did:plc:organizer/events.openmusic.programItem/3mrdbziccpcae"
         ))
@@ -1918,7 +1919,7 @@ struct ScheduleAuthoringTests {
     func scheduleViewerDeletesPerformanceAfterConfirmation() async throws {
         let database = try canonicalPerformanceDatabase()
         let fixture = try seedCanonicalPerformanceFixture(database: database)
-        let timeZone = fixture.event.timeZone
+        let timeZone = try #require(fixture.event.timeZone)
         let performanceID = try #require(ProgramItem.ID(
             "at://did:plc:organizer/events.openmusic.programItem/3mrdbziccpcae"
         ))
@@ -2247,7 +2248,7 @@ struct ScheduleAuthoringTests {
         stageID: EventPlace.ID?
     ) throws -> ProgramItemForm.State {
         let eventID = fixture.event.id
-        let timeZone = fixture.event.timeZone
+        let timeZone = try #require(fixture.event.timeZone)
         var state = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
@@ -2284,6 +2285,7 @@ struct ScheduleAuthoringTests {
         update: (inout ProgramItemForm.State) throws -> Void
     ) throws -> TestStore<ProgramItemForm> {
         let now = try Date("2026-09-02T18:00:00Z", strategy: .iso8601)
+        let timeZone = try #require(fixture.event.timeZone)
         return try withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
@@ -2303,7 +2305,7 @@ struct ScheduleAuthoringTests {
                     schedules: schedules ?? [fixture.schedule],
                     programs: [fixture.program],
                     stages: [fixture.stage],
-                    timeZone: fixture.event.timeZone,
+                    timeZone: timeZone,
                     performance: performance,
                     contributors: contributors
                 )
@@ -2314,7 +2316,7 @@ struct ScheduleAuthoringTests {
                     schedules: schedules ?? [fixture.schedule],
                     programs: [fixture.program],
                     stages: [fixture.stage],
-                    timeZone: fixture.event.timeZone,
+                    timeZone: timeZone,
                     selectedStageID: fixture.stage.id,
                     contributors: contributors
                 )

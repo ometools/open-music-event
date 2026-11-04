@@ -1157,6 +1157,10 @@ applicationTargets.append(contentsOf: [
         ]
     ),
     .testTarget(
+        name: "OpenMusicEventBrowseTests",
+        dependencies: ["OpenMusicEventApp"]
+    ),
+    .testTarget(
         name: "OpenMusicEventAppTests",
         dependencies: [
             .product(name: "Bluesky", package: "swift-bluesky"),

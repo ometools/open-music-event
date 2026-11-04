@@ -192,7 +192,7 @@ private extension Event {
     }
 
     var eventInfoTimeZone: String? {
-        timeZone.identifier
+        timeZone?.identifier
     }
 
     var hasEventInfoDates: Bool {
@@ -204,7 +204,7 @@ private extension Event {
     }
 
     var dateIntervalText: String? {
-        guard let start, let end,
+        guard let timeZone, let start, let end,
               case let .known(.day(startDay)) = start,
               case let .known(.day(endDay)) = end
         else { return nil }
